@@ -58,10 +58,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Admin has access to everything
     if (userRole === "admin") return true
 
-    // RM only has access to RM leads and lead details pages
+    // RM only has access to RM leads, lead details, and reports pages
     if (userRole === "rm") {
-      // Allow access to only rm-leads and lead-details pages
-      return page === "/rm-leads" || page.startsWith("/lead-details/")
+      // Allow access to rm-leads, lead-details, and reports pages
+      return page === "/rm-leads" || 
+             page.startsWith("/lead-details/") || 
+             page === "/reports";
     }
 
     return false
