@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { HelpCircle, Menu, UserPlus, Users, FileBarChart, Database, ChevronDown, ChevronRight, LogOut } from "lucide-react"
+import { Menu, UserPlus, Users, FileBarChart, Database, ChevronDown, ChevronRight, LogOut, Settings, Sparkles } from "lucide-react"
 
 import { Home } from "lucide-react"
 import Link from "next/link"
@@ -130,6 +130,23 @@ export default function Sidebar() {
                 </div>
               </div>
 
+              {/* Configuration section */}
+              {userRole === "admin" && (
+                <div>
+                  <div className="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                    Configuration
+                  </div>
+                  <div className="space-y-1">
+                    <NavItem href="/configuration/escalation-rules" icon={Settings}>
+                      Escalation Rules
+                    </NavItem>
+                    <NavItem href="/configuration/ai-rules" icon={Sparkles}>
+                      AI Rules
+                    </NavItem>
+                  </div>
+                </div>
+              )}
+
               {/* Only show Masters section to admin users */}
               {userRole === "admin" && (
                 <div>
@@ -202,9 +219,6 @@ export default function Sidebar() {
               </div>
             )}
             <div className="space-y-1">
-              <NavItem href="#" icon={HelpCircle}>
-                Help
-              </NavItem>
               <button 
                 onClick={logout}
                 className="flex w-full items-center px-3 py-2 text-sm rounded-md transition-colors text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-[#1F1F23]"

@@ -14,7 +14,6 @@ interface Lead {
   anchorName: string
   rmName: string
   lastUpdated: string
-  priority: "High" | "Medium" | "Low"
   ageingBucket: string
   lastActionDate: string
   flag: "With RM" | "Escalation 1" | "Escalation 2" | "With PSM" | "Under Progress" | "Dropped"
@@ -35,7 +34,6 @@ interface EditLeadModalProps {
 }
 
 export default function EditLeadModal({ lead, isOpen, onClose }: EditLeadModalProps) {
-  const [priority, setPriority] = useState(lead.priority)
   const [flag, setFlag] = useState(lead.flag)
   const [attachments, setAttachments] = useState<Attachment[]>([
     {
@@ -56,7 +54,7 @@ export default function EditLeadModal({ lead, isOpen, onClose }: EditLeadModalPr
 
   const handleSave = () => {
     // Here you would typically save the changes to your backend
-    console.log("Saving lead with updated flag:", flag, "and priority:", priority)
+    console.log("Saving lead with updated flag:", flag)
     onClose()
   }
 
@@ -119,19 +117,6 @@ export default function EditLeadModal({ lead, isOpen, onClose }: EditLeadModalPr
                   <SelectItem value="With PSM">With PSM</SelectItem>
                   <SelectItem value="Under Progress">Under Progress</SelectItem>
                   <SelectItem value="Dropped">Dropped</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="priority">Priority</Label>
-              <Select value={priority} onValueChange={(value: typeof priority) => setPriority(value)}>
-                <SelectTrigger id="priority">
-                  <SelectValue placeholder="Select priority" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="High">High</SelectItem>
-                  <SelectItem value="Medium">Medium</SelectItem>
-                  <SelectItem value="Low">Low</SelectItem>
                 </SelectContent>
               </Select>
             </div>

@@ -16,7 +16,6 @@ interface Lead {
   psmName: string
   status: "New" | "Contacted" | "Qualified" | "Proposal" | "Negotiation" | "Closed Won" | "Closed Lost"
   lastUpdated: string
-  priority: "High" | "Medium" | "Low"
 }
 
 const LEADS_DATA: Lead[] = [
@@ -28,7 +27,6 @@ const LEADS_DATA: Lead[] = [
     psmName: "Alex Williams",
     status: "New",
     lastUpdated: "2025-03-28",
-    priority: "High",
   },
   {
     id: "LD-002",
@@ -38,7 +36,6 @@ const LEADS_DATA: Lead[] = [
     psmName: "Mike Thompson",
     status: "Contacted",
     lastUpdated: "2025-03-27",
-    priority: "Medium",
   },
   {
     id: "LD-003",
@@ -48,7 +45,6 @@ const LEADS_DATA: Lead[] = [
     psmName: "Lisa Anderson",
     status: "Qualified",
     lastUpdated: "2025-03-26",
-    priority: "High",
   },
   {
     id: "LD-004",
@@ -58,7 +54,6 @@ const LEADS_DATA: Lead[] = [
     psmName: "James Wilson",
     status: "Proposal",
     lastUpdated: "2025-03-25",
-    priority: "Medium",
   },
   {
     id: "LD-005",
@@ -68,7 +63,6 @@ const LEADS_DATA: Lead[] = [
     psmName: "Sarah Thompson",
     status: "Negotiation",
     lastUpdated: "2025-03-24",
-    priority: "High",
   },
   {
     id: "LD-006",
@@ -78,7 +72,6 @@ const LEADS_DATA: Lead[] = [
     psmName: "Robert Johnson",
     status: "Closed Won",
     lastUpdated: "2025-03-23",
-    priority: "Low",
   },
   {
     id: "LD-007",
@@ -88,7 +81,6 @@ const LEADS_DATA: Lead[] = [
     psmName: "Emma Brown",
     status: "Closed Lost",
     lastUpdated: "2025-03-22",
-    priority: "Low",
   },
 ]
 
@@ -100,12 +92,6 @@ const statusColors = {
   Negotiation: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
   "Closed Won": "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
   "Closed Lost": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-}
-
-const priorityColors = {
-  High: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  Medium: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-  Low: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
 }
 
 export default function PSMLeads() {
@@ -271,15 +257,6 @@ export default function PSMLeads() {
                     <SortIcon field="lastUpdated" />
                   </div>
                 </th>
-                <th
-                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
-                  onClick={() => handleSort("priority")}
-                >
-                  <div className="flex items-center">
-                    Priority
-                    <SortIcon field="priority" />
-                  </div>
-                </th>
                 <th className="px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">Actions</th>
               </tr>
             </thead>
@@ -305,16 +282,6 @@ export default function PSMLeads() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.lastUpdated}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
-                        priorityColors[lead.priority]
-                      )}
-                    >
-                      {lead.priority}
-                    </span>
-                  </td>
                   <td className="px-4 py-3 text-right space-x-1">
                     <Button variant="ghost" size="icon" className="h-8 w-8" title="View Details">
                       <Eye className="h-4 w-4" />

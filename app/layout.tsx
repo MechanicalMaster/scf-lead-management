@@ -9,7 +9,7 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata = {
   title: "SCF Lead Management",
   description: "Lead Management System for Supply Chain Finance",
-    generator: 'v0.dev'
+  generator: 'v0.dev'
 }
 
 export default function RootLayout({
@@ -21,9 +21,11 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <ClientSideAuthWrapper>
-            {children}
-          </ClientSideAuthWrapper>
+          <AuthProvider>
+            <ClientSideAuthWrapper>
+              {children}
+            </ClientSideAuthWrapper>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

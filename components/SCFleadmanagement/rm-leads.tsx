@@ -15,7 +15,6 @@ interface Lead {
   anchorName: string
   rmName: string
   lastUpdated: string
-  priority: "High" | "Medium" | "Low"
   ageingBucket: string
   lastActionDate: string
   flag: "With RM" | "Escalation 1" | "Escalation 2" | "With PSM" | "Under Progress" | "Dropped"
@@ -28,7 +27,6 @@ const LEADS_DATA: Lead[] = [
     anchorName: "XYZ Corp",
     rmName: "John Smith",
     lastUpdated: "2025-03-28",
-    priority: "High",
     ageingBucket: "0-7 days",
     lastActionDate: "2025-03-27",
     flag: "With RM",
@@ -39,7 +37,6 @@ const LEADS_DATA: Lead[] = [
     anchorName: "Global Industries",
     rmName: "Sarah Johnson",
     lastUpdated: "2025-03-27",
-    priority: "Medium",
     ageingBucket: "0-7 days",
     lastActionDate: "2025-03-26",
     flag: "Under Progress",
@@ -50,7 +47,6 @@ const LEADS_DATA: Lead[] = [
     anchorName: "Metro Manufacturing",
     rmName: "Michael Brown",
     lastUpdated: "2025-03-26",
-    priority: "High",
     ageingBucket: "8-14 days",
     lastActionDate: "2025-03-20",
     flag: "With PSM",
@@ -61,7 +57,6 @@ const LEADS_DATA: Lead[] = [
     anchorName: "National Enterprises",
     rmName: "Emily Davis",
     lastUpdated: "2025-03-25",
-    priority: "Medium",
     ageingBucket: "8-14 days",
     lastActionDate: "2025-03-19",
     flag: "Escalation 1",
@@ -72,7 +67,6 @@ const LEADS_DATA: Lead[] = [
     anchorName: "United Holdings",
     rmName: "David Wilson",
     lastUpdated: "2025-03-24",
-    priority: "High",
     ageingBucket: "15-30 days",
     lastActionDate: "2025-03-15",
     flag: "Escalation 2",
@@ -83,7 +77,6 @@ const LEADS_DATA: Lead[] = [
     anchorName: "Pacific Group",
     rmName: "Jennifer Lee",
     lastUpdated: "2025-03-23",
-    priority: "Low",
     ageingBucket: "15-30 days",
     lastActionDate: "2025-03-10",
     flag: "With PSM",
@@ -94,18 +87,11 @@ const LEADS_DATA: Lead[] = [
     anchorName: "Global Industries",
     rmName: "Robert Taylor",
     lastUpdated: "2025-03-22",
-    priority: "Low",
     ageingBucket: "31-60 days",
     lastActionDate: "2025-02-28",
     flag: "Dropped",
   },
 ]
-
-const priorityColors = {
-  High: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  Medium: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-  Low: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-}
 
 const flagColors = {
   "With RM": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
@@ -252,42 +238,9 @@ export default function RMLeads() {
                     <SortIcon field="rmName" />
                   </div>
                 </th>
-                <th
-                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
-                  onClick={() => handleSort("priority")}
-                >
-                  <div className="flex items-center">
-                    Priority
-                    <SortIcon field="priority" />
-                  </div>
-                </th>
-                <th
-                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
-                  onClick={() => handleSort("ageingBucket")}
-                >
-                  <div className="flex items-center">
-                    Ageing Bucket
-                    <SortIcon field="ageingBucket" />
-                  </div>
-                </th>
-                <th
-                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
-                  onClick={() => handleSort("lastActionDate")}
-                >
-                  <div className="flex items-center">
-                    Last Action Date
-                    <SortIcon field="lastActionDate" />
-                  </div>
-                </th>
-                <th
-                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
-                  onClick={() => handleSort("flag")}
-                >
-                  <div className="flex items-center">
-                    Flag
-                    <SortIcon field="flag" />
-                  </div>
-                </th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Ageing Bucket</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Last Action Date</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Flag</th>
                 <th className="px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">Actions</th>
               </tr>
             </thead>
@@ -298,16 +251,6 @@ export default function RMLeads() {
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.dealerName}</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.anchorName}</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.rmName}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
-                        priorityColors[lead.priority]
-                      )}
-                    >
-                      {lead.priority}
-                    </span>
-                  </td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.ageingBucket}</td>
                   <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.lastActionDate}</td>
                   <td className="px-4 py-3">
@@ -320,28 +263,21 @@ export default function RMLeads() {
                       {lead.flag}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <Link href={`/lead-details/${lead.id}`}>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                        >
-                          <Eye className="h-4 w-4" />
-                          <span className="sr-only">View</span>
-                        </Button>
-                      </Link>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => handleEdit(lead)}
-                      >
-                        <Edit2 className="h-4 w-4" />
-                        <span className="sr-only">Edit</span>
+                  <td className="px-4 py-3 text-right space-x-1">
+                    <Link href={`/lead-details/${lead.id}`}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8" title="View Details">
+                        <Eye className="h-4 w-4" />
                       </Button>
-                    </div>
+                    </Link>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      title="Edit Lead"
+                      onClick={() => handleEdit(lead)}
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </Button>
                   </td>
                 </tr>
               ))}
