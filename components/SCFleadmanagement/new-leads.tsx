@@ -303,6 +303,55 @@ export default function NewLeads() {
                 )}
               </div>
             </CardContent>
+            {/* New Summary Section */}
+            <CardContent>
+              <h3 className="text-lg font-medium mb-4">Upload Summary</h3>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Uploaded File</TableHead>
+                      <TableHead>Uploaded Date</TableHead>
+                      <TableHead>Uploaded By</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Response</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {[
+                      { "Uploaded File": "Poly100425.xlsx", "Uploaded Date": "10-Apr-2025", "Uploaded By": "pratiksha bane", "Status": "Success", "Response": "Poly100425_result.xlsx" },
+                      { "Uploaded File": "Halonix 090425.xlsx", "Uploaded Date": "10-Apr-2025", "Uploaded By": "Asmita Umtekar", "Status": "Success", "Response": "Halonix 090425_result.xlsx" },
+                      { "Uploaded File": "Poly100425.xlsx", "Uploaded Date": "10-Apr-2025", "Uploaded By": "pratiksha bane", "Status": "Failure", "Response": "Poly100425_result.xlsx" },
+                      { "Uploaded File": "Poly100425.xlsx", "Uploaded Date": "10-Apr-2025", "Uploaded By": "pratiksha bane", "Status": "Failure", "Response": "Poly100425_result.xlsx" }
+                    ].map((row, index) => (
+                      <TableRow key={index}>
+                        <TableCell>{row["Uploaded File"]}</TableCell>
+                        <TableCell>{row["Uploaded Date"]}</TableCell>
+                        <TableCell>{row["Uploaded By"]}</TableCell>
+                        <TableCell>
+                          <span
+                            className={cn(
+                              "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
+                              {
+                                "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300":
+                                  row.Status === "Success",
+                                "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300":
+                                  row.Status === "Failure",
+                              }
+                            )}
+                          >
+                            {row.Status === "Success" && <CheckCircle className="mr-1 h-3 w-3" />}
+                            {row.Status === "Failure" && <XCircle className="mr-1 h-3 w-3" />}
+                            {row.Status}
+                          </span>
+                        </TableCell>
+                        <TableCell>{row.Response}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
             <CardFooter>
               <Button onClick={handleUpload} disabled={!selectedFile || uploadStatus === "processing"} className="gap-2">
                 <Upload className="h-4 w-4" />
