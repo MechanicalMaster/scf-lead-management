@@ -185,8 +185,7 @@ export default function NewLeads() {
 
       <Tabs defaultValue="bulkUpload" className="w-full">
         <TabsList className="mb-4">
-          <TabsTrigger value="bulkUpload">Bulk Upload</TabsTrigger>
-          <TabsTrigger value="singleLead">Create Single Lead</TabsTrigger>
+          <TabsTrigger value="bulkUpload">Bulk Upload</TabsTrigger>          
         </TabsList>
         
         <TabsContent value="bulkUpload">
@@ -310,23 +309,6 @@ export default function NewLeads() {
                 Upload Leads
               </Button>
             </CardFooter>
-          </Card>
-        </TabsContent>
-        
-        <TabsContent value="singleLead">
-          <Card>
-            <CardHeader>
-              <CardTitle>Create Single Lead</CardTitle>
-              <CardDescription>
-                Add a new lead by filling out the form below.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {/* Single lead creation form would go here */}
-              <p className="text-gray-500 dark:text-gray-400">
-                This feature is not implemented yet. Please use the Bulk Upload tab.
-              </p>
-            </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
