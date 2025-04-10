@@ -116,20 +116,6 @@ export default function Sidebar() {
                 </div>
               </div>
 
-              <div>
-                <div className="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  Summary
-                </div>
-                <div className="space-y-1">
-                  <NavItem href="/summary/lead-summary" icon={FileBarChart}>
-                    Lead Summary
-                  </NavItem>
-                  <NavItem href="/summary/application-summary" icon={FileBarChart}>
-                    Application Summary
-                  </NavItem>
-                </div>
-              </div>
-
               {/* Configuration section */}
               {userRole === "admin" && (
                 <div>
