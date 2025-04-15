@@ -127,60 +127,6 @@ export default function EditLeadModal({ lead, isOpen, onClose }: EditLeadModalPr
             <Textarea id="notes" placeholder="Add notes about this lead..." className="min-h-[100px]" />
           </div>
 
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-2">
-              <Label>Attachments</Label>
-              <Button variant="outline" size="sm" className="gap-1">
-                <Upload className="h-4 w-4" />
-                Upload Files
-              </Button>
-            </div>
-
-            <div className="border border-gray-200 dark:border-[#1F1F23] rounded-lg overflow-hidden">
-              {attachments.length > 0 ? (
-                <div className="divide-y divide-gray-200 dark:divide-[#1F1F23]">
-                  {attachments.map((attachment) => (
-                    <div key={attachment.id} className="flex items-center justify-between p-3">
-                      <div className="flex items-center space-x-3">
-                        <div className="p-2 bg-gray-100 dark:bg-[#1F1F23] rounded">
-                          <div className="text-xs font-medium text-gray-900 dark:text-white">{attachment.type}</div>
-                        </div>
-                        <div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-white">{attachment.name}</div>
-                          <div className="text-xs text-gray-500 dark:text-gray-400">
-                            {attachment.size} • Uploaded on {attachment.uploadDate}
-                          </div>
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 text-gray-500 hover:text-red-500"
-                        onClick={() => handleRemoveAttachment(attachment.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                        <span className="sr-only">Remove</span>
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="p-8 text-center">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 dark:bg-[#1F1F23]">
-                    <Plus className="h-6 w-6 text-gray-600 dark:text-gray-400" />
-                  </div>
-                  <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-white">No attachments</h3>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Upload files related to this lead</p>
-                  <div className="mt-6">
-                    <Button variant="outline" size="sm" className="gap-1">
-                      <Upload className="h-4 w-4" />
-                      Upload Files
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
 
         <div className="flex items-center justify-end gap-2 p-4 border-t border-gray-200 dark:border-[#1F1F23]">
@@ -193,4 +139,3 @@ export default function EditLeadModal({ lead, isOpen, onClose }: EditLeadModalPr
     </div>
   )
 }
-

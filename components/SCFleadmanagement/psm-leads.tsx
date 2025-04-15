@@ -163,6 +163,21 @@ export default function PSMLeads() {
             />
           </div>
 
+          {/* Assigned to me Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1">
+                Assigned to me
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuItem>All</DropdownMenuItem>
+              <DropdownMenuItem>Assigned to me</DropdownMenuItem>
+              <DropdownMenuItem>Unassigned</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" size="sm" className="gap-1">
@@ -181,11 +196,6 @@ export default function PSMLeads() {
               <DropdownMenuItem>Closed Lost</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          <Button variant="outline" size="sm" className="gap-1">
-            <Download className="h-4 w-4" />
-            Export
-          </Button>
         </div>
       </div>
 
@@ -308,4 +318,4 @@ export default function PSMLeads() {
       )}
     </div>
   )
-} 
+}
