@@ -176,6 +176,20 @@ export default function Sidebar() {
                       >
                         Hierarchy Master
                       </Link>
+                      <Link
+                        href="/masters/holiday-master"
+                        onClick={handleNavigation}
+                        className="flex items-center py-2 text-sm transition-colors text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                      >
+                        Holiday Master
+                      </Link>
+                      <Link
+                        href="/masters/anchor-master"
+                        onClick={handleNavigation}
+                        className="flex items-center py-2 text-sm transition-colors text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                      >
+                        Anchor Master
+                      </Link>
                     </div>
                   )}
                 </div>
@@ -212,4 +226,3 @@ export default function Sidebar() {
     </>
   )
 }
-

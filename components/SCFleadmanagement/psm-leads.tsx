@@ -14,7 +14,7 @@ interface Lead {
   anchorId: string
   rmName: string
   psmName: string
-  status: "New" | "Contacted" | "Qualified" | "Proposal" | "Negotiation" | "Closed Won" | "Closed Lost"
+  status: "With RM" | "Escalation 1" | "Escalation 2" | "Dropped" | "WIP in Smartfin" | "With PSM"
   lastUpdated: string
 }
 
@@ -25,7 +25,7 @@ const LEADS_DATA: Lead[] = [
     anchorId: "ANC-1234",
     rmName: "John Smith",
     psmName: "Alex Williams",
-    status: "New",
+    status: "With RM",
     lastUpdated: "2025-03-28",
   },
   {
@@ -34,7 +34,7 @@ const LEADS_DATA: Lead[] = [
     anchorId: "ANC-5678",
     rmName: "Sarah Johnson",
     psmName: "Mike Thompson",
-    status: "Contacted",
+    status: "Escalation 1",
     lastUpdated: "2025-03-27",
   },
   {
@@ -43,7 +43,7 @@ const LEADS_DATA: Lead[] = [
     anchorId: "ANC-9012",
     rmName: "Michael Brown",
     psmName: "Lisa Anderson",
-    status: "Qualified",
+    status: "Escalation 2",
     lastUpdated: "2025-03-26",
   },
   {
@@ -52,7 +52,7 @@ const LEADS_DATA: Lead[] = [
     anchorId: "ANC-3456",
     rmName: "Emily Davis",
     psmName: "James Wilson",
-    status: "Proposal",
+    status: "Dropped",
     lastUpdated: "2025-03-25",
   },
   {
@@ -61,7 +61,7 @@ const LEADS_DATA: Lead[] = [
     anchorId: "ANC-7890",
     rmName: "David Wilson",
     psmName: "Sarah Thompson",
-    status: "Negotiation",
+    status: "WIP in Smartfin",
     lastUpdated: "2025-03-24",
   },
   {
@@ -70,28 +70,18 @@ const LEADS_DATA: Lead[] = [
     anchorId: "ANC-1234",
     rmName: "Jennifer Lee",
     psmName: "Robert Johnson",
-    status: "Closed Won",
+    status: "With PSM",
     lastUpdated: "2025-03-23",
-  },
-  {
-    id: "LD-007",
-    dealerId: "DLR-9012",
-    anchorId: "ANC-5678",
-    rmName: "Robert Taylor",
-    psmName: "Emma Brown",
-    status: "Closed Lost",
-    lastUpdated: "2025-03-22",
   },
 ]
 
 const statusColors = {
-  New: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  Contacted: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-  Qualified: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-  Proposal: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
-  Negotiation: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
-  "Closed Won": "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
-  "Closed Lost": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  "With RM": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  "Escalation 1": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  "Escalation 2": "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+  "Dropped": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  "WIP in Smartfin": "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+  "With PSM": "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300",
 }
 
 export default function PSMLeads() {
@@ -187,13 +177,12 @@ export default function PSMLeads() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
               <DropdownMenuItem>All Leads</DropdownMenuItem>
-              <DropdownMenuItem>New Leads</DropdownMenuItem>
-              <DropdownMenuItem>Contacted</DropdownMenuItem>
-              <DropdownMenuItem>Qualified</DropdownMenuItem>
-              <DropdownMenuItem>Proposal</DropdownMenuItem>
-              <DropdownMenuItem>Negotiation</DropdownMenuItem>
-              <DropdownMenuItem>Closed Won</DropdownMenuItem>
-              <DropdownMenuItem>Closed Lost</DropdownMenuItem>
+              <DropdownMenuItem>With RM</DropdownMenuItem>
+              <DropdownMenuItem>Escalation 1</DropdownMenuItem>
+              <DropdownMenuItem>Escalation 2</DropdownMenuItem>
+              <DropdownMenuItem>Dropped</DropdownMenuItem>
+              <DropdownMenuItem>WIP in Smartfin</DropdownMenuItem>
+              <DropdownMenuItem>With PSM</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
