@@ -48,7 +48,7 @@ export default function Reports() {
       name: "Lead Status Report",
       description: "Comprehensive report on all leads and their current status",
       icon: <FileBarChart className="h-5 w-5" />,
-      format: ["xlsx", "csv", "pdf"],
+      format: ["xlsx"],
       lastUpdated: "Today at 09:30 AM",
       roles: ["admin", "rm"],
     },
@@ -57,7 +57,7 @@ export default function Reports() {
       name: "Application Status Report",
       description: "Detailed report on application processing status and timelines",
       icon: <FilePieChart className="h-5 w-5" />,
-      format: ["xlsx", "csv", "pdf"],
+      format: ["xlsx"],
       lastUpdated: "Today at 09:30 AM",
       roles: ["admin", "rm"],
     },
@@ -66,7 +66,7 @@ export default function Reports() {
       name: "Rejected Leads Report",
       description: "Analysis of rejected leads with rejection reasons",
       icon: <FileSpreadsheet className="h-5 w-5" />,
-      format: ["xlsx", "csv", "pdf"],
+      format: ["xlsx"],
       lastUpdated: "Today at 09:30 AM",
       roles: ["admin", "rm"],
     },
@@ -75,7 +75,7 @@ export default function Reports() {
       name: "Lead Aging Report",
       description: "Report on lead age and time spent in each status",
       icon: <AlarmClock className="h-5 w-5" />,
-      format: ["xlsx", "csv", "pdf"],
+      format: ["xlsx"],
       lastUpdated: "Today at 09:30 AM",
       roles: ["admin", "rm"],
     },
@@ -84,7 +84,7 @@ export default function Reports() {
       name: "RM Performance Report",
       description: "Performance metrics for relationship managers",
       icon: <BarChart className="h-5 w-5" />,
-      format: ["xlsx", "csv", "pdf"],
+      format: ["xlsx"],
       lastUpdated: "Today at 09:30 AM",
       roles: ["admin"],
     },
@@ -93,7 +93,7 @@ export default function Reports() {
       name: "My Leads Report",
       description: "Detailed report of all your assigned leads",
       icon: <FileText className="h-5 w-5" />,
-      format: ["xlsx", "csv", "pdf"],
+      format: ["xlsx"],
       lastUpdated: "Today at 09:30 AM",
       roles: ["rm"],
     }
@@ -211,4 +211,3 @@ export default function Reports() {
     </div>
   )
 }
-

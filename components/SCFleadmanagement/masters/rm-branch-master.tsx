@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Search, Download, Filter } from "lucide-react"
 import MasterLayout from "./master-layout"
+import { downloadTemplate } from "@/lib/downloadTemplate"
 
 interface RMBranch {
   id: string
@@ -91,6 +92,22 @@ export default function RMBranchMaster() {
         user: "Sarah Johnson",
       }}
     >
+      <div className="flex justify-end mb-4">
+        <Button
+          variant="outline"
+          onClick={() => downloadTemplate([
+            "RM ID",
+            "RM Name",
+            "Branch Code",
+            "Branch Name",
+            "Region",
+            "Role",
+            "Status"
+          ], "rm_branch_template.xlsx")}
+        >
+          Download Template
+        </Button>
+      </div>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
@@ -177,4 +194,3 @@ export default function RMBranchMaster() {
     </MasterLayout>
   )
 }
-

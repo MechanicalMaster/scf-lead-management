@@ -4,6 +4,7 @@ import MasterLayout from "./master-layout"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { downloadTemplate } from "@/lib/downloadTemplate"
 
 interface Holiday {
   id: string
@@ -33,34 +34,15 @@ export default function HolidayMaster() {
 
   return (
     <MasterLayout title="Holiday Master" description="Manage holidays for your organization">
-      <div className="mb-6 flex gap-4">
-        <Input
-          type="date"
-          value={newHoliday.date}
-          onChange={e => setNewHoliday({ ...newHoliday, date: e.target.value })}
-          placeholder="Date"
-          className="w-40"
-        />
-        <Input
-          value={newHoliday.name}
-          onChange={e => setNewHoliday({ ...newHoliday, name: e.target.value })}
-          placeholder="Holiday Name"
-          className="w-48"
-        />
-        <Input
-          value={newHoliday.type}
-          onChange={e => setNewHoliday({ ...newHoliday, type: e.target.value })}
-          placeholder="Type (e.g. Public, Restricted)"
-          className="w-48"
-        />
-        <Input
-          value={newHoliday.description}
-          onChange={e => setNewHoliday({ ...newHoliday, description: e.target.value })}
-          placeholder="Description"
-          className="w-64"
-        />
-        <Button onClick={handleAdd}>Add</Button>
+      <div className="flex justify-end mb-4">
+        <Button
+          variant="outline"
+          onClick={() => downloadTemplate(["Date", "Name", "Type", "Description"], "holiday_template.xlsx")}
+        >
+          Download Template
+        </Button>
       </div>
+      {/* Removed manual add fields as per user request */}
       <table className="w-full border text-sm">
         <thead>
           <tr className="bg-muted">

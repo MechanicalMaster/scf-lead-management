@@ -64,6 +64,7 @@ export default function MasterLayout({ title, description, children, lastUpdated
     setFile(null)
     setValidationStatus("idle")
     setValidationMessage("")
+    setActiveTab("view") // Automatically go back to View Master Data
   }
 
   return (
@@ -212,4 +213,3 @@ export default function MasterLayout({ title, description, children, lastUpdated
     </div>
   )
 }
-

@@ -228,9 +228,16 @@ export default function Dashboard() {
                     outerRadius={80}
                     fill="#8884d8"
                     dataKey="value"
-                    label={({ name, percent, x, y, cx, cy }) => {
+                    label={({ name, percent, midAngle, cx, cy }) => {
                       const radius = 90;
-                      const midAngle = (percent as any).midAngle;
+                      // Guard against undefined values
+                      if (
+                        typeof midAngle !== 'number' ||
+                        typeof cx !== 'number' ||
+                        typeof cy !== 'number'
+                      ) {
+                        return null;
+                      }
                       const sin = Math.sin(-midAngle * Math.PI / 180);
                       const cos = Math.cos(-midAngle * Math.PI / 180);
                       const sx = cx + (radius + 10) * cos;
@@ -432,4 +439,3 @@ export default function Dashboard() {
     </div>
   )
 }
-

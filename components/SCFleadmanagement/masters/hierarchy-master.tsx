@@ -5,74 +5,75 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Search, Download, Filter } from "lucide-react"
 import MasterLayout from "./master-layout"
+import { downloadTemplate } from "@/lib/downloadTemplate"
 
 interface Hierarchy {
-  id: string
-  employeeId: string
-  employeeName: string
-  designation: string
-  reportingTo: string
-  reportingManager: string
-  department: string
-  level: number
-  active: boolean
+  empAdid: string
+  fullName: string
+  rblAdid: string
+  rblName: string
+  region: string
+  zhAdid: string
+  zhName: string
+  yesEmail: string
+  mobile: string
 }
 
 const HIERARCHY_DATA: Hierarchy[] = [
   {
-    id: "1",
-    employeeId: "EMP001",
-    employeeName: "Vikram Mehta",
-    designation: "Regional Head",
-    reportingTo: "EMP000",
-    reportingManager: "CEO",
-    department: "Sales",
-    level: 1,
-    active: true,
+    empAdid: "EMP001",
+    fullName: "Vikram Mehta",
+    rblAdid: "RBL001",
+    rblName: "RBL Name 1",
+    region: "North",
+    zhAdid: "ZH001",
+    zhName: "ZH Name 1",
+    yesEmail: "vikram.mehta@yesbank.in",
+    mobile: "9876543210",
   },
   {
-    id: "2",
-    employeeId: "EMP002",
-    employeeName: "Neha Gupta",
-    designation: "Branch Manager",
-    reportingTo: "EMP001",
-    reportingManager: "Vikram Mehta",
-    department: "Sales",
-    level: 2,
-    active: true,
+    empAdid: "EMP002",
+    fullName: "Neha Gupta",
+    rblAdid: "RBL002",
+    rblName: "RBL Name 2",
+    region: "West",
+    zhAdid: "ZH002",
+    zhName: "ZH Name 2",
+    yesEmail: "neha.gupta@yesbank.in",
+    mobile: "9123456780",
   },
   {
-    id: "3",
-    employeeId: "EMP003",
-    employeeName: "Rahul Sharma",
-    designation: "Team Lead",
-    reportingTo: "EMP002",
-    reportingManager: "Neha Gupta",
-    department: "Sales",
-    level: 3,
-    active: true,
+    empAdid: "EMP003",
+    fullName: "Rahul Sharma",
+    rblAdid: "RBL003",
+    rblName: "RBL Name 3",
+    region: "South",
+    zhAdid: "ZH003",
+    zhName: "ZH Name 3",
+    yesEmail: "rahul.sharma@yesbank.in",
+    mobile: "9999999999",
   },
   {
-    id: "4",
-    employeeId: "EMP004",
-    employeeName: "Priya Patel",
-    designation: "Senior RM",
-    reportingTo: "EMP003",
-    reportingManager: "Rahul Sharma",
-    department: "Sales",
-    level: 4,
-    active: true,
+    empAdid: "EMP004",
+    fullName: "Priya Patel",
+    rblAdid: "RBL004",
+    rblName: "RBL Name 4",
+    region: "East",
+    zhAdid: "ZH004",
+    zhName: "ZH Name 4",
+    yesEmail: "priya.patel@yesbank.in",
+    mobile: "8888888888",
   },
   {
-    id: "5",
-    employeeId: "EMP005",
-    employeeName: "Anil Kumar",
-    designation: "RM",
-    reportingTo: "EMP003",
-    reportingManager: "Rahul Sharma",
-    department: "Sales",
-    level: 4,
-    active: false,
+    empAdid: "EMP005",
+    fullName: "Anil Kumar",
+    rblAdid: "RBL005",
+    rblName: "RBL Name 5",
+    region: "North",
+    zhAdid: "ZH005",
+    zhName: "ZH Name 5",
+    yesEmail: "anil.kumar@yesbank.in",
+    mobile: "7777777777",
   },
 ]
 
@@ -81,11 +82,15 @@ export default function HierarchyMaster() {
 
   const filteredData = HIERARCHY_DATA.filter(
     (item) =>
-      item.employeeId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.employeeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.designation.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.reportingManager.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.department.toLowerCase().includes(searchTerm.toLowerCase()),
+      item.empAdid.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.rblAdid.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.rblName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.region.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.zhAdid.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.zhName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.yesEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.mobile.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
   return (
@@ -97,6 +102,24 @@ export default function HierarchyMaster() {
         user: "Michael Brown",
       }}
     >
+      <div className="flex justify-end mb-4">
+        <Button
+          variant="outline"
+          onClick={() => downloadTemplate([
+            "Emp ADID",
+            "Full Name",
+            "RBL ADID",
+            "RBL Name",
+            "Region",
+            "ZH ADID",
+            "ZH Name",
+            "Yes Email",
+            "Mobile"
+          ], "hierarchy_template.xlsx")}
+        >
+          Download Template
+        </Button>
+      </div>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
@@ -127,38 +150,32 @@ export default function HierarchyMaster() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-200 dark:border-[#1F1F23] bg-gray-50 dark:bg-[#1F1F23]">
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Employee ID</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Employee Name</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Designation</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Reporting Manager</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Department</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Level</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Status</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Emp ADID</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Full Name</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL ADID</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL Name</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Region</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">ZH ADID</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">ZH Name</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Yes Email</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Mobile</th>
               </tr>
             </thead>
             <tbody>
-              {filteredData.map((item) => (
+              {filteredData.map((item, idx) => (
                 <tr
-                  key={item.id}
+                  key={item.empAdid + idx}
                   className="border-b border-gray-200 dark:border-[#1F1F23] hover:bg-gray-50 dark:hover:bg-[#1F1F23]/50"
                 >
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.employeeId}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.employeeName}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.designation}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.reportingManager}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.department}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.level}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        item.active
-                          ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
-                          : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
-                      }`}
-                    >
-                      {item.active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.empAdid}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.fullName}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.rblAdid}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.rblName}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.region}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.zhAdid}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.zhName}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.yesEmail}</td>
+                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.mobile}</td>
                 </tr>
               ))}
             </tbody>
@@ -183,4 +200,3 @@ export default function HierarchyMaster() {
     </MasterLayout>
   )
 }
-
