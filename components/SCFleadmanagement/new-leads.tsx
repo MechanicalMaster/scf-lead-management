@@ -18,6 +18,8 @@ import { saveAs } from 'file-saver';
 import { LEAD_TEMPLATE_HEADERS, ERROR_CODES } from "@/lib/constants"
 import type { PincodeBranch, RMBranch, ErrorCodeMaster, ProcessedLead } from "@/lib/db"
 import { v4 as uuidv4 } from 'uuid';
+import { handleNewLeadAssignment } from "@/lib/lead-workflow-examples"
+import { getEmailFromRmAdid, getPSMDetailsFromAnchor } from "@/lib/lead-utils"
 
 type UploadStatus = "idle" | "processing" | "validating" | "partial" | "success" | "failed"
 type RowStatus = "success" | "failed" | "warning"
@@ -151,10 +153,13 @@ export default function NewLeads() {
     }
 
     setUploadStatus("processing");
+    console.log("=== Starting lead upload process ===");
+    console.log(`Selected anchor: ${selectedAnchor}, program: ${selectedProgram}`);
 
     try {
       // Generate a unique ID for this upload batch
       const uploadBatchId = uuidv4();
+      console.log(`Generated upload batch ID: ${uploadBatchId}`);
       
       // Read the file
       const arrayBuffer = await selectedFile.arrayBuffer();
@@ -164,6 +169,7 @@ export default function NewLeads() {
       
       // Convert to JSON
       const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' }) as Record<string, any>[];
+      console.log(`Parsed ${jsonData.length} rows from Excel file`);
       
       // Prepare the upload result
       const uploadResult: UploadResult = {
@@ -175,6 +181,7 @@ export default function NewLeads() {
       };
       
       // Fetch the required master data for lookups
+      console.log("Fetching master data for lead assignment...");
       const [pincodeResult, rmBranchResult, errorCodesResult] = await Promise.all([
         MasterService.getRecords('pincode_branch', {}, undefined, 1000, 0),
         MasterService.getRecords('rm_branch', {}, undefined, 1000, 0),
@@ -190,6 +197,7 @@ export default function NewLeads() {
         (pincodeResult.data as PincodeBranch[]).forEach(item => {
           pincodeMap.set(String(item.pincode), item);
         });
+        console.log(`Loaded ${pincodeMap.size} pincodes for mapping`);
       }
       
       if (rmBranchResult.success && rmBranchResult.data) {
@@ -198,12 +206,14 @@ export default function NewLeads() {
           branches.push(item);
           rmBranchMapByBranchCode.set(item.branchCode, branches);
         });
+        console.log(`Loaded ${rmBranchMapByBranchCode.size} branch codes with RMs`);
       }
       
       if (errorCodesResult.success && errorCodesResult.data) {
         (errorCodesResult.data as ErrorCodeMaster[]).forEach(item => {
           errorCodesMap.set(item.errorCode, item.description);
         });
+        console.log(`Loaded ${errorCodesMap.size} error codes`);
       }
       
       // Array to store processed leads for database storage
@@ -213,6 +223,8 @@ export default function NewLeads() {
       for (let index = 0; index < jsonData.length; index++) {
         const originalRow = jsonData[index] as Record<string, any>;
         const originalRowNumber = index + 2; // Excel row (1-based with header row)
+        
+        console.log(`--- Processing row ${originalRowNumber} ---`);
         
         // Initialize the processed lead entry
         const processedLeadEntry: Partial<ProcessedLead> = {
@@ -241,19 +253,24 @@ export default function NewLeads() {
         
         // Check if RM ADID is already provided in the Excel
         if (originalRow["RM ADID"] && String(originalRow["RM ADID"]).trim() !== "") {
-          processedLeadEntry.assignedRmAdid = String(originalRow["RM ADID"]);
+          const rmAdid = String(originalRow["RM ADID"]);
+          console.log(`Row ${originalRowNumber}: Manual RM assignment found - ${rmAdid}`);
+          
+          processedLeadEntry.assignedRmAdid = rmAdid;
           processedLeadEntry.assignmentStatus = "RM Assigned (Manual)";
           processedLeadEntry.errorCode = "INFO_RM_MANUAL";
           processedLeadEntry.errorDescription = "RM assigned from Excel";
           
-          uiRow.assignedRmAdid = String(originalRow["RM ADID"]);
+          uiRow.assignedRmAdid = rmAdid;
           uiRow.status = "success";
           uploadResult.success++;
         } else {
           // Automatic assignment based on pincode
           const pincode = String(originalRow["Pincode"] || "").trim();
+          console.log(`Row ${originalRowNumber}: Attempting automatic RM assignment for pincode ${pincode}`);
           
           if (!pincode) {
+            console.log(`Row ${originalRowNumber}: No pincode provided`);
             processedLeadEntry.errorCode = "ERR_PIN_NF";
             processedLeadEntry.assignmentStatus = "Failed: Pincode not found";
             uiRow.error = "Pincode not found";
@@ -262,15 +279,19 @@ export default function NewLeads() {
             const pincodeEntry = pincodeMap.get(pincode);
             
             if (!pincodeEntry) {
+              console.log(`Row ${originalRowNumber}: Pincode ${pincode} not found in master data`);
               processedLeadEntry.errorCode = "ERR_PIN_NF";
               processedLeadEntry.assignmentStatus = "Failed: Pincode not found";
               uiRow.error = "Pincode not found";
               uploadResult.failed++;
             } else {
               const branchCode = pincodeEntry.branchCode;
+              console.log(`Row ${originalRowNumber}: Pincode ${pincode} mapped to branch ${branchCode}`);
+              
               const rmList = rmBranchMapByBranchCode.get(branchCode) || [];
               
               if (rmList.length === 0) {
+                console.log(`Row ${originalRowNumber}: No RMs found for branch ${branchCode}`);
                 processedLeadEntry.errorCode = "ERR_BR_NMAP";
                 processedLeadEntry.assignmentStatus = "Failed: Branch not mapped to RM";
                 uiRow.error = "Branch not mapped to RM";
@@ -282,15 +303,19 @@ export default function NewLeads() {
                 const selectedRM = activeRM || anyRM;
                 
                 if (selectedRM) {
-                  processedLeadEntry.assignedRmAdid = selectedRM.rmId;
+                  const rmAdid = selectedRM.rmId;
+                  console.log(`Row ${originalRowNumber}: Assigned to RM ${rmAdid} (${selectedRM.rmName})`);
+                  
+                  processedLeadEntry.assignedRmAdid = rmAdid;
                   processedLeadEntry.assignmentStatus = "RM Assigned (Auto)";
                   processedLeadEntry.errorCode = "INFO_RM_AUTO";
                   processedLeadEntry.errorDescription = "RM assigned automatically";
                   
-                  uiRow.assignedRmAdid = selectedRM.rmId;
+                  uiRow.assignedRmAdid = rmAdid;
                   uiRow.status = "success";
                   uploadResult.success++;
                 } else {
+                  console.log(`Row ${originalRowNumber}: Failed to find RM for branch ${branchCode}`);
                   processedLeadEntry.errorCode = "ERR_RM_NBR";
                   processedLeadEntry.assignmentStatus = "Failed: No RM for Branch";
                   uiRow.error = "No RM for Branch";
@@ -318,8 +343,54 @@ export default function NewLeads() {
       
       // Save all processed leads to database
       try {
+        console.log(`Saving ${leadsToPersist.length} processed leads to database...`);
         // Using the processed_leads table we created
         await db.processed_leads.bulkAdd(leadsToPersist);
+        console.log(`Successfully saved ${leadsToPersist.length} leads to database`);
+        
+        console.log("=== Starting email generation for assigned leads ===");
+        // Add new code here to create lead workflow records with emails
+        // Process each successful lead assignment
+        let emailSuccessCount = 0;
+        let emailFailCount = 0;
+        
+        for (const lead of leadsToPersist) {
+          // Only process leads that have been successfully assigned to an RM
+          if (lead.assignmentStatus === "RM Assigned (Manual)" || lead.assignmentStatus === "RM Assigned (Auto)") {
+            try {
+              console.log(`Processing lead ${lead.id} for email...`);
+              // Get the RM's email
+              const rmAdid = lead.assignedRmAdid as string;
+              console.log(`Getting email for RM ${rmAdid}...`);
+              const rmEmail = await getEmailFromRmAdid(rmAdid);
+              console.log(`Found RM email: ${rmEmail}`);
+              
+              // Get PSM details for the anchor
+              console.log(`Getting PSM details for anchor ${lead.anchorNameSelected}...`);
+              const [psmAdid, psmEmail] = await getPSMDetailsFromAnchor(lead.anchorNameSelected);
+              console.log(`Found PSM: ${psmAdid} (${psmEmail})`);
+              
+              // Create the workflow record and send the simulated email
+              console.log(`Creating workflow record and sending email notification...`);
+              await handleNewLeadAssignment(lead.id, rmAdid, rmEmail, psmAdid);
+              
+              console.log(`✅ Email successfully sent for lead ${lead.id} to RM ${rmAdid} (${rmEmail})`);
+              emailSuccessCount++;
+            } catch (error) {
+              // Log the error but don't fail the overall upload
+              console.error(`❌ Error creating lead workflow for ${lead.id}:`, error);
+              emailFailCount++;
+            }
+          } else {
+            console.log(`Skipping email for lead ${lead.id} - assignment status: ${lead.assignmentStatus}`);
+          }
+        }
+        
+        console.log(`=== Email generation summary ===`);
+        console.log(`Total leads processed: ${leadsToPersist.length}`);
+        console.log(`Emails sent successfully: ${emailSuccessCount}`);
+        console.log(`Emails failed: ${emailFailCount}`);
+        
       } catch (dbError) {
         console.error("Error saving processed leads:", dbError);
       }
@@ -362,8 +433,10 @@ export default function NewLeads() {
         setUploadStatus("partial");
       }
       
+      console.log(`=== Lead upload process completed ===`);
+      
     } catch (error) {
-      console.error("Error processing file:", error);
+      console.error("❌ Error processing file:", error);
       setUploadStatus("failed");
     }
   }

@@ -6,11 +6,18 @@ import { useRouter, usePathname } from "next/navigation"
 // Define available roles
 export type UserRole = "admin" | "rm" | "rm-inbox" | null
 
+interface User {
+  id: string;
+  email: string;
+  role: UserRole;
+}
+
 interface AuthContextType {
   isAuthenticated: boolean
   userEmail: string | null
   userRole: UserRole
-  login: (email: string, role: UserRole) => void
+  user: User | null
+  login: (email: string, role: UserRole, id?: string) => void
   logout: () => void
   hasAccess: (page: string) => boolean
 }
@@ -21,6 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<UserRole>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
   const pathname = usePathname()
@@ -30,10 +38,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const loggedIn = localStorage.getItem("isLoggedIn") === "true"
     const email = localStorage.getItem("userEmail")
     const role = localStorage.getItem("userRole") as UserRole
+    const userId = localStorage.getItem("userId") || email?.split('@')[0] || 'unknown'
     
     setIsAuthenticated(loggedIn)
     setUserEmail(email)
     setUserRole(role)
+    
+    if (loggedIn && email && role) {
+      setUser({
+        id: userId,
+        email: email,
+        role: role
+      })
+    }
+    
     setIsLoading(false)
     
     // Redirect logic
@@ -78,27 +96,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return false
   }
 
-  const login = (email: string, role: UserRole) => {
+  const login = (email: string, role: UserRole, id?: string) => {
+    const userId = id || email.split('@')[0] || 'unknown'
     localStorage.setItem("isLoggedIn", "true")
     localStorage.setItem("userEmail", email)
     localStorage.setItem("userRole", role as string)
+    localStorage.setItem("userId", userId)
+    
     setIsAuthenticated(true)
     setUserEmail(email)
     setUserRole(role)
+    setUser({
+      id: userId,
+      email: email,
+      role: role
+    })
   }
 
   const logout = () => {
     localStorage.removeItem("isLoggedIn")
     localStorage.removeItem("userEmail")
     localStorage.removeItem("userRole")
+    localStorage.removeItem("userId")
     setIsAuthenticated(false)
     setUserEmail(null)
     setUserRole(null)
+    setUser(null)
     router.push("/login")
   }
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, userEmail, userRole, login, logout, hasAccess }}>
+    <AuthContext.Provider value={{ isAuthenticated, userEmail, userRole, user, login, logout, hasAccess }}>
       {children}
     </AuthContext.Provider>
   )

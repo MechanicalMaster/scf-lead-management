@@ -102,7 +102,32 @@ export interface LeadCommunication {
   recipient: 'rm' | 'system'; // Who the message is for
 }
 
-type StoreName = 'anchor_master' | 'hierarchy_master' | 'holiday_master' | 'pincode_branch' | 'rm_branch' | 'error_codes' | 'processed_leads' | 'lead_communications';
+export interface LeadWorkflowState {
+  id: string; // UUID PK
+  processedLeadId: string; // FK to ProcessedLead
+  currentStage: string; // e.g., 'RM_AwaitingReply', 'PSM_ReviewPending', 'Dropped'
+  currentAssigneeType: 'RM' | 'PSM' | 'System';
+  currentAssigneeAdid: string;
+  psmAdid: string; // PSM for the anchor
+  lastStageChangeTimestamp: string; // ISO string
+  lastCommunicationTimestamp: string; // ISO string
+  nextFollowUpTimestamp: string; // ISO string
+  escalationLevel: number;
+  droppedReason: string | null;
+  updatedAt: string; // ISO string
+  createdAt: string; // ISO string
+}
+
+type StoreName = 
+  'anchor_master' | 
+  'hierarchy_master' | 
+  'holiday_master' | 
+  'pincode_branch' | 
+  'rm_branch' | 
+  'error_codes' | 
+  'processed_leads' | 
+  'lead_communications' |
+  'lead_workflow_states';
 
 type StoreTableMap = {
   anchor_master: AnchorMaster;
@@ -113,10 +138,11 @@ type StoreTableMap = {
   error_codes: ErrorCodeMaster;
   processed_leads: ProcessedLead;
   lead_communications: LeadCommunication;
+  lead_workflow_states: LeadWorkflowState;
 };
 
 // --- Dexie Database Setup ---
-class SCFLeadManagementDB extends Dexie {
+export class SCFLeadManagementDB extends Dexie {
   anchor_master!: Table<AnchorMaster, string>;
   hierarchy_master!: Table<HierarchyMaster, string>;
   holiday_master!: Table<HolidayMaster, string>;
@@ -125,6 +151,7 @@ class SCFLeadManagementDB extends Dexie {
   error_codes!: Table<ErrorCodeMaster, string>;
   processed_leads!: Table<ProcessedLead, string>;
   lead_communications!: Table<LeadCommunication, string>;
+  lead_workflow_states!: Table<LeadWorkflowState, string>;
 
   constructor() {
     super('SCFLeadManagement');
@@ -163,10 +190,28 @@ class SCFLeadManagementDB extends Dexie {
       error_codes: '++id, errorCode, module, severity',
       processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode'
     });
+    
+    // Version 5: Add lead_workflow_states and update lead_communications tables
+    this.version(5).stores({
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, currentAssigneeType, nextFollowUpTimestamp, updatedAt',
+      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail',
+      // Carry forward all table definitions from previous versions
+      anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
+      hierarchy_master: 'id, employeeName, empAdid, fullName, rblAdid, rblName, region, zhAdid, zhName',
+      holiday_master: 'id, Date, HolidayType, date, name, type, description',
+      pincode_branch: 'id, pincode, branchCode, branchName, city, state, region, active',
+      rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
+      error_codes: '++id, errorCode, module, severity',
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode'
+    });
   }
 }
 
+// Add minimal logging to avoid TypeScript errors
 const db = new SCFLeadManagementDB();
+
+// Log database schema version on object initialization
+console.log(`Database schema version defined: ${db.verno}`);
 
 // --- Utility: Store fields for Excel templates/validation ---
 const STORE_FIELDS: Record<StoreName, string[]> = {
@@ -177,15 +222,16 @@ const STORE_FIELDS: Record<StoreName, string[]> = {
   rm_branch: ['id', 'rmId', 'rmName', 'branchCode', 'branchName', 'region', 'role', 'active'],
   error_codes: ['id', 'errorCode', 'description', 'module', 'severity'],
   processed_leads: [],  // No direct upload via master UI, populated programmatically
-  lead_communications: ['id', 'leadId', 'rmEmail', 'messageType', 'content', 'timestamp', 'sender', 'recipient']
+  lead_communications: ['id', 'processedLeadId', 'timestamp', 'communicationType', 'title', 'description', 'senderType', 'senderAdidOrEmail', 'recipientAdidOrEmail', 'ccEmails', 'aiSummary', 'aiDecision', 'attachments', 'relatedWorkflowStateId'],
+  lead_workflow_states: ['id', 'processedLeadId', 'currentStage', 'currentAssigneeType', 'currentAssigneeAdid', 'psmAdid', 'lastStageChangeTimestamp', 'lastCommunicationTimestamp', 'nextFollowUpTimestamp', 'escalationLevel', 'droppedReason', 'updatedAt', 'createdAt']
 };
 
 // --- MasterService Class ---
 export class MasterService {
   // Add a single record
-  static async createRecord<T extends StoreName>(storeName: T, record: StoreTableMap[T]) {
+  static async createRecord<T extends StoreName>(storeName: T, record: Partial<StoreTableMap[T]>) {
     try {
-      await db[storeName].add(record);
+      await db[storeName].add(record as any);
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -411,5 +457,4 @@ export class MasterService {
   }
 }
 
-// --- Singleton Export ---
 export default db;

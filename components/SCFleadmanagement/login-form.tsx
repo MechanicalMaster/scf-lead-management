@@ -10,11 +10,11 @@ import { useAuth, UserRole } from "@/components/auth-provider"
 
 // Dummy users for testing
 const USERS = [
-  { email: "admin@yesbank.in", password: "password", role: "admin" as UserRole },
-  { email: "rm@yesbank.in", password: "password", role: "rm" as UserRole },
-  { email: "rm1@yesbank.in", password: "password", role: "rm-inbox" as UserRole },
-  { email: "rm2@yesbank.in", password: "password", role: "rm-inbox" as UserRole },
-  { email: "rm3@yesbank.in", password: "password", role: "rm-inbox" as UserRole },
+  { email: "admin@yesbank.in", password: "password", role: "admin" as UserRole, id: "admin001" },
+  { email: "rm@yesbank.in", password: "password", role: "rm" as UserRole, id: "RM001" },
+  { email: "rm1@yesbank.in", password: "password", role: "rm-inbox" as UserRole, id: "REM0000001" },
+  { email: "rm2@yesbank.in", password: "password", role: "rm-inbox" as UserRole, id: "REM0000002" },
+  { email: "rm3@yesbank.in", password: "password", role: "rm-inbox" as UserRole, id: "REM0000003" },
 ]
 
 export default function LoginForm() {
@@ -38,8 +38,8 @@ export default function LoginForm() {
     
     setTimeout(() => {
       if (user) {
-        // Login with email and role
-        login(user.email, user.role)
+        // Login with email, role and ID
+        login(user.email, user.role, user.id)
         
         // Redirect based on role
         if (user.role === "rm") {

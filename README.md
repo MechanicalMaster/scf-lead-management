@@ -57,3 +57,37 @@ yarn dev
 ## Deployment
 
 This application is configured for easy deployment on Vercel. 
+
+## Lead Email Functionality
+
+The application now includes a simulated email functionality for lead assignments. When a lead is successfully assigned to an RM (either manually or automatically), the system:
+
+1. Creates a workflow state record for the lead
+2. Generates a simulated email notification to the RM
+3. Logs the communication in the system
+
+### Implementation Details
+
+- The email generation happens in the `handleUpload` function in the `NewLeads` component
+- RM email addresses are retrieved or generated based on their ADID
+- PSM details are retrieved from the anchor record
+- Email content includes dealer details and action items for the RM
+
+### Workflow States
+
+Each lead goes through a workflow with different states:
+- `RM_AssignmentEmailPending`: Initial state after lead creation
+- `RM_AwaitingReply`: After assignment email is sent
+- `RM_Escalation1`: If no response after first reminder
+- `PSM_ReviewPending`: If no response after second reminder
+- `Dropped`: If lead is dropped by PSM
+
+### Viewing Communications
+
+Lead communications can be viewed in the `LeadDetails` component under the "RM Communications" tab.
+
+### Technical Implementation
+
+- Email generation logic is in `lib/lead-utils.ts`
+- Workflow state management is in `lib/lead-workflow.ts`
+- Example implementations are in `lib/lead-workflow-examples.ts` 

@@ -10,10 +10,12 @@ import { v4 as uuidv4 } from 'uuid'
 import { MessageSquare, ChevronDown, ChevronUp, Send } from "lucide-react"
 import Link from "next/link"
 import { format } from "date-fns"
+import { getRMInboxEmails } from "@/lib/lead-utils"
+import { createRMReplyCommunication } from "@/lib/lead-workflow"
 
 export default function RMInbox() {
-  const { userEmail } = useAuth()
-  const [communications, setCommunications] = useState<LeadCommunication[]>([])
+  const { userEmail, user } = useAuth()
+  const [communications, setCommunications] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedMessages, setExpandedMessages] = useState<Record<string, boolean>>({})
@@ -22,31 +24,35 @@ export default function RMInbox() {
   // Fetch communications for the logged-in RM
   useEffect(() => {
     async function fetchCommunications() {
-      if (!userEmail) return
+      if (!userEmail) return;
 
       try {
-        // Get communications where this RM is the recipient or there's an assignment for this RM
-        const allComms = await db.lead_communications
-          .where('rmEmail')
-          .equals(userEmail)
-          .toArray()
-
-        // Sort by timestamp descending (newest first)
-        const sortedComms = allComms.sort((a: LeadCommunication, b: LeadCommunication) => 
-          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        )
+        console.log("[RM Inbox Component] Fetching emails for user:", { 
+          email: userEmail, 
+          id: user?.id || 'Not Available'
+        });
         
-        setCommunications(sortedComms)
+        // Get the RM ADID - prefer user ID from auth context if available
+        // For test accounts, RM1 = "REM0000001"
+        const rmAdid = user?.id || "RM1";
+        console.log(`[RM Inbox Component] Using RM ADID: ${rmAdid}`);
+        
+        // Use the utility function to get inbox emails
+        const inboxEmails = await getRMInboxEmails(rmAdid);
+        
+        console.log(`[RM Inbox Component] Retrieved ${inboxEmails.length} emails`);
+        
+        setCommunications(inboxEmails);
       } catch (err: any) {
-        console.error("Error fetching communications:", err)
-        setError("Failed to load your inbox. Please try again later.")
+        console.error("[RM Inbox Component] Error fetching communications:", err);
+        setError("Failed to load your inbox. Please try again later.");
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
     }
 
-    fetchCommunications()
-  }, [userEmail])
+    fetchCommunications();
+  }, [userEmail, user]);
 
   // Toggle message expansion
   const toggleMessageExpand = (id: string) => {
@@ -65,53 +71,78 @@ export default function RMInbox() {
   }
 
   // Submit reply
-  const submitReply = async (comm: LeadCommunication) => {
-    if (!userEmail || !replyTexts[comm.id]) return
+  const submitReply = async (comm: any) => {
+    if (!userEmail || !replyTexts[comm.id]) return;
     
     try {
-      // Create a new communication entry for the reply
-      const replyComm: LeadCommunication = {
-        id: uuidv4(),
-        leadId: comm.leadId,
-        rmEmail: userEmail,
-        messageType: 'reply',
-        content: replyTexts[comm.id],
-        timestamp: new Date().toISOString(),
-        sender: 'rm',
-        recipient: 'system'
+      console.log("[RM Inbox Component] Submitting reply to:", comm);
+      
+      // Get the processed lead ID (from old or new schema)
+      const processedLeadId = comm.processedLeadId || comm.leadId;
+      
+      if (!processedLeadId) {
+        throw new Error("Cannot find lead ID for this communication");
       }
       
-      // Add to database
-      await db.lead_communications.add(replyComm)
+      console.log(`[RM Inbox Component] Creating reply for lead: ${processedLeadId}`);
+      
+      // Use the lead workflow function to create a reply
+      const reply = await createRMReplyCommunication(
+        processedLeadId,
+        userEmail,
+        replyTexts[comm.id]
+      );
+      
+      console.log("[RM Inbox Component] Reply created successfully:", reply);
       
       // Update local state
-      setCommunications(prev => [replyComm, ...prev])
+      setCommunications(prev => [reply, ...prev]);
       
       // Clear reply text
       setReplyTexts(prev => ({
         ...prev,
         [comm.id]: ''
-      }))
+      }));
       
       // Close the expanded view
       setExpandedMessages(prev => ({
         ...prev,
         [comm.id]: false
-      }))
+      }));
     } catch (err: any) {
-      console.error("Error submitting reply:", err)
-      setError("Failed to send your reply. Please try again.")
+      console.error("[RM Inbox Component] Error submitting reply:", err);
+      setError("Failed to send your reply. Please try again.");
     }
   }
 
+  // Helper to get lead ID consistently from old or new schema
+  const getLeadId = (comm: any) => comm.processedLeadId || comm.leadId
+
   // Group communications by leadId
-  const groupedCommunications = communications.reduce((groups, comm) => {
-    if (!groups[comm.leadId]) {
-      groups[comm.leadId] = []
+  const groupedCommunications = communications.reduce((groups: Record<string, any[]>, comm: any) => {
+    // Get the processed lead ID (from old or new schema)
+    const leadId = comm.processedLeadId || comm.leadId;
+    
+    if (!leadId) {
+      console.warn("[RM Inbox Component] Communication without lead ID:", comm.id);
+      return groups;
     }
-    groups[comm.leadId].push(comm)
-    return groups
-  }, {} as Record<string, LeadCommunication[]>)
+    
+    if (!groups[leadId]) {
+      groups[leadId] = [];
+    }
+    groups[leadId].push(comm);
+    return groups;
+  }, {} as Record<string, any[]>);
+
+  // Helper to determine if a message is an assignment (supports both schemas)
+  const isAssignment = (comm: any) => 
+    comm.messageType === 'assignment' || 
+    comm.communicationType === 'LeadAssignmentEmail'
+
+  // Helper to get message content
+  const getMessageContent = (comm: any) => 
+    comm.content || comm.description || ''
 
   if (loading) {
     return (
@@ -157,7 +188,7 @@ export default function RMInbox() {
         <div className="space-y-4">
           {Object.entries(groupedCommunications).map(([leadId, comms]) => {
             // Find the lead assignment message
-            const assignmentMsg = comms.find(c => c.messageType === 'assignment')
+            const assignmentMsg = comms.find(c => isAssignment(c))
             if (!assignmentMsg) return null
 
             return (
@@ -189,14 +220,14 @@ export default function RMInbox() {
                         <div className="flex justify-between items-center">
                           <div className="flex items-center gap-2">
                             <span className={`px-2 py-1 text-xs rounded-full ${
-                              comm.messageType === 'assignment' 
+                              isAssignment(comm)
                                 ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300' 
                                 : 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300'
                             }`}>
-                              {comm.messageType === 'assignment' ? 'Assignment' : 'Reply'}
+                              {isAssignment(comm) ? 'Assignment' : 'Reply'}
                             </span>
                             <span className="text-sm font-medium text-gray-900 dark:text-white">
-                              {comm.sender === 'system' ? 'System' : 'You'}
+                              {(comm.sender === 'system' || comm.senderType === 'System') ? 'System' : 'You'}
                             </span>
                             <span className="text-xs text-gray-500">
                               {format(new Date(comm.timestamp), 'MMM d, yyyy h:mm a')}
@@ -211,8 +242,8 @@ export default function RMInbox() {
                         
                         {!expandedMessages[comm.id] && (
                           <div className="mt-1 text-sm text-gray-600 dark:text-gray-400 truncate">
-                            {comm.content.substring(0, 100)}
-                            {comm.content.length > 100 ? '...' : ''}
+                            {getMessageContent(comm).substring(0, 100)}
+                            {getMessageContent(comm).length > 100 ? '...' : ''}
                           </div>
                         )}
                       </div>
@@ -220,11 +251,11 @@ export default function RMInbox() {
                       {expandedMessages[comm.id] && (
                         <div className="p-4 bg-gray-50 dark:bg-gray-800">
                           <div className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
-                            {comm.content}
+                            {getMessageContent(comm)}
                           </div>
                           
                           {/* Reply section - only show for assignment messages */}
-                          {comm.messageType === 'assignment' && (
+                          {isAssignment(comm) && (
                             <div className="mt-4 space-y-3">
                               <Textarea
                                 placeholder="Type your reply here..."

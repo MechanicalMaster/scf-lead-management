@@ -3,8 +3,12 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/components/auth-provider"
 import ClientSideAuthWrapper from "@/components/client-side-auth-wrapper"
+import setupDatabase from '@/lib/db-init'
 
 const inter = Inter({ subsets: ["latin"] })
+
+// Call setupDatabase at the module level
+setupDatabase()
 
 export const metadata = {
   title: "SCF Lead Management",

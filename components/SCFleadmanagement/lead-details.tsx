@@ -10,7 +10,13 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
-import db, { LeadCommunication } from "@/lib/db"
+import { 
+  LeadCommunication, 
+  LeadWorkflowState, 
+  stageToFlagMap,
+  getLeadWorkflowStateByProcessedLeadId,
+  getLeadCommunicationsByProcessedLeadId
+} from "@/lib/lead-workflow"
 import { format } from "date-fns"
 
 interface Lead {
@@ -139,19 +145,34 @@ const LEAD_HISTORY: LeadHistory[] = [
 export default function LeadDetails({ leadId }: LeadDetailsProps) {
   const [expandedItems, setExpandedItems] = useState<string[]>([])
   const [communications, setCommunications] = useState<LeadCommunication[]>([])
+  const [workflowState, setWorkflowState] = useState<LeadWorkflowState | null>(null)
   const [loadingComms, setLoadingComms] = useState(true)
+  const [loadingWorkflowState, setLoadingWorkflowState] = useState(true)
+
+  // Fetch workflow state for this lead
+  useEffect(() => {
+    async function fetchWorkflowState() {
+      try {
+        const state = await getLeadWorkflowStateByProcessedLeadId(leadId);
+        setWorkflowState(state || null);
+      } catch (err) {
+        console.error("Error fetching workflow state:", err)
+      } finally {
+        setLoadingWorkflowState(false)
+      }
+    }
+    
+    fetchWorkflowState()
+  }, [leadId])
 
   // Fetch communications for this lead
   useEffect(() => {
     async function fetchCommunications() {
       try {
-        const comms = await db.lead_communications
-          .where('leadId')
-          .equals(leadId)
-          .toArray()
-          
+        const comms = await getLeadCommunicationsByProcessedLeadId(leadId);
+        
         // Sort by timestamp (newest first)
-        const sortedComms = comms.sort((a: LeadCommunication, b: LeadCommunication) =>
+        const sortedComms = comms.sort((a, b) =>
           new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
         )
         
@@ -175,6 +196,53 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
   }
 
   const isItemExpanded = (itemId: string) => expandedItems.includes(itemId)
+
+  // Helper to map workflow stage to display flag
+  const getDisplayFlag = (): string => {
+    if (!workflowState) return "With RM"; // Default
+    
+    // Map from currentStage to display flag
+    return stageToFlagMap[workflowState.currentStage] || "With RM";
+  }
+
+  // Helper to get formatted dates
+  const formatDateFromISOString = (isoString: string): string => {
+    try {
+      return format(new Date(isoString), "yyyy-MM-dd");
+    } catch (e) {
+      return "Invalid date";
+    }
+  }
+
+  const formatTimeFromISOString = (isoString: string): string => {
+    try {
+      return format(new Date(isoString), "hh:mm a");
+    } catch (e) {
+      return "";
+    }
+  }
+
+  // Helper to get icon based on communication type
+  const getIconForCommunicationType = (type: string) => {
+    switch (type) {
+      case 'LeadAssignmentEmail':
+      case 'SystemFollowUpEmail':
+      case 'SystemReminderEmail':
+        return <Mail className="h-5 w-5 text-blue-500" />;
+      case 'RMReply':
+        return <MessageSquare className="h-5 w-5 text-green-500" />;
+      case 'PSMDecision_ReassignToRM':
+      case 'PSMDecision_DropLead':
+      case 'StageUpdate':
+        return <AlertTriangle className="h-5 w-5 text-amber-500" />;
+      case 'AISystemAssessment':
+        return <FileText className="h-5 w-5 text-purple-500" />;
+      case 'NoteAdded':
+        return <FileText className="h-5 w-5 text-gray-500" />;
+      default:
+        return <Calendar className="h-5 w-5 text-gray-500" />;
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -234,10 +302,10 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
                   <span
                     className={cn(
                       "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
-                      flagColors[LEAD_DATA.flag]
+                      flagColors[getDisplayFlag() as keyof typeof flagColors]
                     )}
                   >
-                    {LEAD_DATA.flag}
+                    {getDisplayFlag()}
                   </span>
                 </div>
               </div>
@@ -247,11 +315,9 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
               </div>
               <div>
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Last Updated</p>
-                <p className="text-base text-gray-900 dark:text-white">{LEAD_DATA.lastUpdated}</p>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Last Action Date</p>
-                <p className="text-base text-gray-900 dark:text-white">{LEAD_DATA.lastActionDate}</p>
+                <p className="text-base text-gray-900 dark:text-white">
+                  {workflowState?.updatedAt ? formatDateFromISOString(workflowState.updatedAt) : LEAD_DATA.lastUpdated}
+                </p>
               </div>
             </div>
           </div>
@@ -311,86 +377,115 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
               </div>
             </div>
             <div className="p-4 space-y-4">
-              {LEAD_HISTORY.map((historyItem) => (
-                <div 
-                  key={historyItem.id} 
-                  className="border border-gray-200 dark:border-[#1F1F23] rounded-lg overflow-hidden"
-                >
-                  <div 
-                    className={cn(
-                      "px-4 py-3 flex items-center justify-between bg-gray-50 dark:bg-[#1F1F23] cursor-pointer",
-                      isItemExpanded(historyItem.id) && "border-b border-gray-200 dark:border-[#1F1F23]"
-                    )}
-                    onClick={() => toggleItem(historyItem.id)}
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm">
-                        <Calendar className="w-4 h-4" />
-                        <span>{historyItem.date}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm">
-                        <Clock className="w-4 h-4" />
-                        <span>{historyItem.time}</span>
-                      </div>
-                      <div className="font-medium text-gray-900 dark:text-white">
-                        {historyItem.title}
-                      </div>
-                    </div>
-                    <div className="flex items-center">
-                      {isItemExpanded(historyItem.id) ? (
-                        <ChevronUp className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                      ) : (
-                        <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                      )}
-                    </div>
-                  </div>
-
-                  {isItemExpanded(historyItem.id) && (
-                    <div className="p-4 bg-white dark:bg-[#0F0F12]">
-                      <div className="space-y-3">
-                        <p className="text-gray-700 dark:text-gray-300">{historyItem.description}</p>
-                        
-                        {(historyItem.fromEmail || historyItem.toEmail) && (
-                          <div className="bg-gray-50 dark:bg-[#1F1F23] rounded-md p-3 space-y-2">
-                            {historyItem.fromEmail && (
-                              <div className="flex items-start gap-2">
-                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">From:</span>
-                                <span className="text-sm text-gray-700 dark:text-gray-300">{historyItem.fromEmail}</span>
-                              </div>
-                            )}
-                            {historyItem.toEmail && (
-                              <div className="flex items-start gap-2">
-                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">To:</span>
-                                <span className="text-sm text-gray-700 dark:text-gray-300">{historyItem.toEmail}</span>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        
-                        {historyItem.aiDecision && (
-                          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-md p-3">
-                            <div className="flex gap-2">
-                              <div>
-                                <span className="text-sm font-medium text-blue-700 dark:text-blue-300">AI Analysis</span>
-                                <p className="text-sm text-blue-600 dark:text-blue-300">{historyItem.aiDecision}</p>
-                              </div>
+              {loadingComms ? (
+                <div className="py-8 text-center text-gray-500 dark:text-gray-400">
+                  Loading history...
+                </div>
+              ) : communications.length === 0 ? (
+                <div className="py-8 text-center text-gray-500 dark:text-gray-400">
+                  No history records found.
+                </div>
+              ) : (
+                communications.map((comm) => (
+                  <div key={comm.id} className="border-b border-gray-200 dark:border-[#1F1F23] pb-4 last:border-0 last:pb-0">
+                    <div
+                      className="flex items-start justify-between cursor-pointer"
+                      onClick={() => toggleItem(comm.id)}
+                    >
+                      <div className="flex gap-3">
+                        <div className="mt-1">
+                          {getIconForCommunicationType(comm.communicationType)}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                              {comm.title}
+                            </p>
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3 text-gray-500" />
+                              <p className="text-xs text-gray-500">
+                                {formatDateFromISOString(comm.timestamp)}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Clock className="h-3 w-3 text-gray-500" />
+                              <p className="text-xs text-gray-500">
+                                {formatTimeFromISOString(comm.timestamp)}
+                              </p>
                             </div>
                           </div>
+                          <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-1">
+                            {comm.description}
+                          </p>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="sm" className="mt-0.5">
+                        {isItemExpanded(comm.id) ? (
+                          <ChevronUp className="h-4 w-4" />
+                        ) : (
+                          <ChevronDown className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                    
+                    {isItemExpanded(comm.id) && (
+                      <div className="mt-3 pl-8 space-y-3">
+                        {(comm.senderAdidOrEmail || comm.recipientAdidOrEmail) && (
+                          <div className="text-sm">
+                            {comm.senderAdidOrEmail && (
+                              <p className="text-gray-600 dark:text-gray-300">
+                                <span className="font-medium">From:</span> {comm.senderAdidOrEmail}
+                              </p>
+                            )}
+                            {comm.recipientAdidOrEmail && (
+                              <p className="text-gray-600 dark:text-gray-300">
+                                <span className="font-medium">To:</span> {comm.recipientAdidOrEmail}
+                              </p>
+                            )}
+                            {comm.ccEmails && comm.ccEmails.length > 0 && (
+                              <p className="text-gray-600 dark:text-gray-300">
+                                <span className="font-medium">CC:</span> {comm.ccEmails.join(', ')}
+                              </p>
+                            )}
+                          </div>
                         )}
                         
-                        {historyItem.attachments && historyItem.attachments.length > 0 && (
-                          <div>
-                            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Attachments</p>
+                        <div className="bg-gray-50 dark:bg-[#1F1F23] p-3 rounded-md">
+                          <p className="text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap">
+                            {comm.description}
+                          </p>
+                        </div>
+                        
+                        {comm.aiDecision && (
+                          <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded-md">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Check className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                              <p className="text-sm font-medium text-purple-700 dark:text-purple-400">
+                                AI Decision
+                              </p>
+                            </div>
+                            <p className="text-sm text-purple-700 dark:text-purple-300">
+                              {comm.aiDecision}
+                            </p>
+                          </div>
+                        )}
+                        
+                        {comm.attachments && comm.attachments.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                              Attachments
+                            </p>
                             <div className="space-y-2">
-                              {historyItem.attachments.map((attachment, idx) => (
-                                <div 
-                                  key={idx}
+                              {comm.attachments.map((attachment, index) => (
+                                <div
+                                  key={index}
                                   className="flex items-center justify-between bg-gray-50 dark:bg-[#1F1F23] p-2 rounded-md"
                                 >
                                   <div className="flex items-center gap-2">
-                                    <FileText className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                                    <span className="text-sm text-gray-700 dark:text-gray-300">{attachment.name}</span>
-                                    <span className="text-xs text-gray-500 dark:text-gray-400">({attachment.size})</span>
+                                    <FileText className="h-4 w-4 text-gray-500" />
+                                    <p className="text-sm text-gray-700 dark:text-gray-200">
+                                      {attachment.name} <span className="text-gray-500">({attachment.size})</span>
+                                    </p>
                                   </div>
                                   <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                                     <Download className="h-4 w-4" />
@@ -402,10 +497,10 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
                           </div>
                         )}
                       </div>
-                    </div>
-                  )}
-                </div>
-              ))}
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -452,16 +547,16 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
                     >
                       <div className="flex items-center gap-2">
                         <span className={`px-2 py-1 text-xs rounded-full ${
-                          comm.messageType === 'assignment' 
+                          comm.communicationType === 'LeadAssignmentEmail' 
                             ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' 
                             : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
                         }`}>
-                          {comm.messageType === 'assignment' ? 'Assignment' : 'Reply'}
+                          {comm.communicationType === 'LeadAssignmentEmail' ? 'Assignment' : 'Reply'}
                         </span>
                         <span className="text-sm font-medium">
-                          {comm.sender === 'system' ? 'System' : 'RM'} 
-                          {comm.sender === 'system' ? ' → ' : ' → '}
-                          {comm.recipient === 'rm' ? 'RM' : 'System'}
+                          {comm.senderType === 'System' ? 'System' : 'RM'} 
+                          {comm.senderType === 'System' ? ' → ' : ' → '}
+                          {comm.recipientAdidOrEmail.includes('@') ? 'RM' : 'System'}
                         </span>
                         <span className="text-xs text-gray-500">
                           {format(new Date(comm.timestamp), 'MMM d, yyyy h:mm a')}
@@ -477,10 +572,12 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
                     {isItemExpanded(comm.id) && (
                       <div className="p-4 bg-white dark:bg-[#0F0F12]">
                         <div className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
-                          {comm.content}
+                          {comm.description}
                         </div>
                         <div className="mt-3 text-xs text-gray-500">
-                          <span className="font-medium">RM Email:</span> {comm.rmEmail}
+                          <span className="font-medium">From:</span> {comm.senderAdidOrEmail}
+                          <br />
+                          <span className="font-medium">To:</span> {comm.recipientAdidOrEmail}
                         </div>
                       </div>
                     )}
