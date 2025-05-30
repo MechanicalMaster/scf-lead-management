@@ -2,12 +2,14 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Database, Upload, FileSpreadsheet, AlertCircle, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { MasterService } from "@/lib/db"
+import dbUtils from "@/lib/dbUtils"
 
 interface MasterLayoutProps {
   title: string
@@ -17,13 +19,39 @@ interface MasterLayoutProps {
     date: string
     user: string
   }
+  storeName?: "anchor_master" | "hierarchy_master" | "holiday_master" | "pincode_branch" | "rm_branch"
 }
 
-export default function MasterLayout({ title, description, children, lastUpdated }: MasterLayoutProps) {
+export default function MasterLayout({ 
+  title, 
+  description, 
+  children, 
+  lastUpdated,
+  storeName 
+}: MasterLayoutProps) {
   const [activeTab, setActiveTab] = useState("view")
   const [file, setFile] = useState<File | null>(null)
   const [validationStatus, setValidationStatus] = useState<"idle" | "validating" | "success" | "error">("idle")
   const [validationMessage, setValidationMessage] = useState("")
+  const [recordsCount, setRecordsCount] = useState<number | null>(null)
+  
+  // Initialize database and get record counts
+  useEffect(() => {
+    const initDB = async () => {
+      // Initialize DB with sample data if empty
+      await dbUtils.initializeDBIfEmpty();
+      
+      // Get record counts for this store
+      if (storeName) {
+        const countResult = await dbUtils.getMasterDataCounts();
+        if (countResult.success && countResult.data) {
+          setRecordsCount(countResult.data[storeName]);
+        }
+      }
+    };
+    
+    initDB();
+  }, [storeName]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
@@ -54,17 +82,43 @@ export default function MasterLayout({ title, description, children, lastUpdated
     }, 1500)
   }
 
-  const handleUpload = () => {
-    if (!file || validationStatus !== "success") return
+  const handleUpload = async () => {
+    if (!file || validationStatus !== "success" || !storeName) return
 
-    // Here you would handle the actual upload
-    alert(`Uploading file: ${file.name}`)
+    // Here we actually upload the file using MasterService
+    try {
+      setValidationMessage("Uploading, please wait...");
+      
+      const result = await MasterService.uploadExcel(storeName, file);
+      
+      if (result.success) {
+        alert(`File '${file.name}' was successfully uploaded and processed.`);
+        
+        // Update the record count
+        const countResult = await dbUtils.getMasterDataCounts();
+        if (countResult.success && countResult.data) {
+          setRecordsCount(countResult.data[storeName]);
+        }
+      } else {
+        alert(`Upload encountered some issues: ${result.errors?.join(", ")}`);
+      }
+      
+      // Reset state after upload
+      setFile(null);
+      setValidationStatus("idle");
+      setValidationMessage("");
+      setActiveTab("view"); // Automatically go back to View Master Data
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("An error occurred during the upload process.");
+    }
+  }
 
-    // Reset state after upload
-    setFile(null)
-    setValidationStatus("idle")
-    setValidationMessage("")
-    setActiveTab("view") // Automatically go back to View Master Data
+  const handleDownloadTemplate = () => {
+    if (!storeName) return;
+    
+    // Use the MasterService to download the template
+    MasterService.downloadTemplate(storeName);
   }
 
   return (
@@ -73,6 +127,11 @@ export default function MasterLayout({ title, description, children, lastUpdated
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
+          {recordsCount !== null && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Total records: <span className="font-medium">{recordsCount}</span>
+            </p>
+          )}
         </div>
 
         {lastUpdated && (
@@ -108,7 +167,22 @@ export default function MasterLayout({ title, description, children, lastUpdated
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center">
+              {storeName && (
+                <div className="mb-4">
+                  <Button
+                    variant="outline"
+                    onClick={handleDownloadTemplate}
+                    className="text-sm"
+                  >
+                    Download Template
+                  </Button>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Download and use this template to ensure your data is formatted correctly.
+                  </p>
+                </div>
+              )}
+              
+              <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center relative">
                 {!file ? (
                   <>
                     <FileSpreadsheet className="mx-auto h-12 w-12 text-gray-400" />

@@ -1,96 +1,55 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Search, Download, Filter } from "lucide-react"
+import { Search, Filter } from "lucide-react"
 import MasterLayout from "./master-layout"
-import { downloadTemplate } from "@/lib/downloadTemplate"
-
-interface Hierarchy {
-  empAdid: string
-  fullName: string
-  rblAdid: string
-  rblName: string
-  region: string
-  zhAdid: string
-  zhName: string
-  yesEmail: string
-  mobile: string
-}
-
-const HIERARCHY_DATA: Hierarchy[] = [
-  {
-    empAdid: "EMP001",
-    fullName: "Vikram Mehta",
-    rblAdid: "RBL001",
-    rblName: "RBL Name 1",
-    region: "North",
-    zhAdid: "ZH001",
-    zhName: "ZH Name 1",
-    yesEmail: "vikram.mehta@yesbank.in",
-    mobile: "9876543210",
-  },
-  {
-    empAdid: "EMP002",
-    fullName: "Neha Gupta",
-    rblAdid: "RBL002",
-    rblName: "RBL Name 2",
-    region: "West",
-    zhAdid: "ZH002",
-    zhName: "ZH Name 2",
-    yesEmail: "neha.gupta@yesbank.in",
-    mobile: "9123456780",
-  },
-  {
-    empAdid: "EMP003",
-    fullName: "Rahul Sharma",
-    rblAdid: "RBL003",
-    rblName: "RBL Name 3",
-    region: "South",
-    zhAdid: "ZH003",
-    zhName: "ZH Name 3",
-    yesEmail: "rahul.sharma@yesbank.in",
-    mobile: "9999999999",
-  },
-  {
-    empAdid: "EMP004",
-    fullName: "Priya Patel",
-    rblAdid: "RBL004",
-    rblName: "RBL Name 4",
-    region: "East",
-    zhAdid: "ZH004",
-    zhName: "ZH Name 4",
-    yesEmail: "priya.patel@yesbank.in",
-    mobile: "8888888888",
-  },
-  {
-    empAdid: "EMP005",
-    fullName: "Anil Kumar",
-    rblAdid: "RBL005",
-    rblName: "RBL Name 5",
-    region: "North",
-    zhAdid: "ZH005",
-    zhName: "ZH Name 5",
-    yesEmail: "anil.kumar@yesbank.in",
-    mobile: "7777777777",
-  },
-]
+import { MasterService } from "@/lib/db"
+import type { HierarchyMaster } from "@/lib/db"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 export default function HierarchyMaster() {
   const [searchTerm, setSearchTerm] = useState("")
+  const [hierarchyData, setHierarchyData] = useState<HierarchyMaster[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const filteredData = HIERARCHY_DATA.filter(
+  useEffect(() => {
+    // Load hierarchy data from IndexedDB
+    const loadHierarchy = async () => {
+      try {
+        setLoading(true);
+        const result = await MasterService.getRecords('hierarchy_master');
+        
+        if (result.success && result.data) {
+          // Type assertion to ensure correct type
+          setHierarchyData(result.data as HierarchyMaster[]);
+        } else {
+          setError("Failed to load hierarchy data");
+        }
+      } catch (err) {
+        console.error("Error loading hierarchy:", err);
+        setError("An unexpected error occurred");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadHierarchy();
+  }, []);
+
+  const filteredData = hierarchyData.filter(
     (item) =>
-      item.empAdid.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.rblAdid.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.rblName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.region.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.zhAdid.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.zhName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.yesEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.mobile.toLowerCase().includes(searchTerm.toLowerCase()),
+      item.empAdid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.rblAdid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.rblName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.region?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.zhAdid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.zhName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.yesEmail?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.mobile?.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
   return (
@@ -101,25 +60,8 @@ export default function HierarchyMaster() {
         date: "Mar 30, 2025, 11:15 AM",
         user: "Michael Brown",
       }}
+      storeName="hierarchy_master"
     >
-      <div className="flex justify-end mb-4">
-        <Button
-          variant="outline"
-          onClick={() => downloadTemplate([
-            "Emp ADID",
-            "Full Name",
-            "RBL ADID",
-            "RBL Name",
-            "Region",
-            "ZH ADID",
-            "ZH Name",
-            "Yes Email",
-            "Mobile"
-          ], "hierarchy_template.xlsx")}
-        >
-          Download Template
-        </Button>
-      </div>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
         <div className="relative w-full sm:w-64">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
@@ -137,66 +79,84 @@ export default function HierarchyMaster() {
             <Filter className="h-4 w-4" />
             Filter
           </Button>
+        </div>
+      </div>
 
-          <Button variant="outline" size="sm" className="gap-1">
-            <Download className="h-4 w-4" />
-            Export
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <div className="text-center">
+            <div className="inline-block animate-spin h-8 w-8 border-4 border-gray-300 dark:border-gray-700 rounded-full border-t-blue-600 dark:border-t-blue-500"></div>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading hierarchy data...</p>
+          </div>
+        </div>
+      ) : error ? (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 rounded-md p-4 my-4">
+          <p className="text-red-800 dark:text-red-300">{error}</p>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="mt-2"
+            onClick={() => window.location.reload()}
+          >
+            Reload
           </Button>
         </div>
-      </div>
-
-      <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 dark:border-[#1F1F23] bg-gray-50 dark:bg-[#1F1F23]">
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Emp ADID</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Full Name</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL ADID</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL Name</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Region</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">ZH ADID</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">ZH Name</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Yes Email</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Mobile</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredData.map((item, idx) => (
-                <tr
-                  key={item.empAdid + idx}
-                  className="border-b border-gray-200 dark:border-[#1F1F23] hover:bg-gray-50 dark:hover:bg-[#1F1F23]/50"
-                >
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.empAdid}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.fullName}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.rblAdid}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.rblName}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.region}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.zhAdid}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.zhName}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.yesEmail}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.mobile}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-[#1F1F23]">
-          <div className="text-sm text-gray-700 dark:text-gray-300">
-            Showing <span className="font-medium">{filteredData.length}</span> of{" "}
-            <span className="font-medium">{HIERARCHY_DATA.length}</span> records
+      ) : (
+        <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-b border-gray-200 dark:border-[#1F1F23] bg-gray-50 dark:bg-[#1F1F23]">
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Emp ADID</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Full Name</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL ADID</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL Name</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Region</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">ZH ADID</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">ZH Name</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Yes Email</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Mobile</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredData.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-6 text-gray-500 dark:text-gray-400">
+                      {hierarchyData.length === 0 
+                        ? "No hierarchy data available. Use the Upload tab to add data." 
+                        : "No results found for your search."}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredData.map((item, idx) => (
+                    <TableRow
+                      key={item.id || idx}
+                      className="border-b border-gray-200 dark:border-[#1F1F23] hover:bg-gray-50 dark:hover:bg-[#1F1F23]/50"
+                    >
+                      <TableCell className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.empAdid}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.fullName}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.rblAdid}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.rblName}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.region}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.zhAdid}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.zhName}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.yesEmail}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.mobile}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled>
-              Previous
-            </Button>
-            <Button variant="outline" size="sm" disabled>
-              Next
-            </Button>
+
+          <div className="px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-[#1F1F23]">
+            <div className="text-sm text-gray-700 dark:text-gray-300">
+              Showing <span className="font-medium">{filteredData.length}</span> of{" "}
+              <span className="font-medium">{hierarchyData.length}</span> records
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </MasterLayout>
   )
 }

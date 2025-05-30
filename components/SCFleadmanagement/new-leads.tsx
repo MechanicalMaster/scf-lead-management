@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { Download, Upload, AlertCircle, CheckCircle, XCircle } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Download, Upload, AlertCircle, CheckCircle, XCircle, FileText } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,6 +10,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
+import { MasterService } from "@/lib/db"
+import { useAuth } from "@/components/auth-provider"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 type UploadStatus = "idle" | "processing" | "partial" | "success" | "failed"
 type RowStatus = "success" | "failed" | "warning"
@@ -28,10 +31,46 @@ interface UploadResult {
   }[]
 }
 
+interface UploadHistoryItem {
+  fileName: string
+  uploadDate: string
+  uploadedBy: string
+  status: "Success" | "Failure"
+  responseFile: string
+}
+
 export default function NewLeads() {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null)
+  const [anchorNamesList, setAnchorNamesList] = useState<string[]>([])
+  const [programNamesList, setProgramNamesList] = useState<string[]>([])
+  const [selectedAnchor, setSelectedAnchor] = useState<string>("")
+  const [selectedProgram, setSelectedProgram] = useState<string>("")
+  const [uploadHistory, setUploadHistory] = useState<UploadHistoryItem[]>([])
+  const { userEmail } = useAuth()
+
+  // Fetch anchor and program names on component mount
+  useEffect(() => {
+    const fetchDropdownData = async () => {
+      try {
+        const anchorsResult = await MasterService.getUniqueAnchorNames();
+        const programsResult = await MasterService.getUniqueProgramNames();
+        
+        if (anchorsResult.success && anchorsResult.data) {
+          setAnchorNamesList(anchorsResult.data as string[]);
+        }
+        
+        if (programsResult.success && programsResult.data) {
+          setProgramNamesList(programsResult.data as string[]);
+        }
+      } catch (error) {
+        console.error("Error fetching dropdown data:", error);
+      }
+    };
+
+    fetchDropdownData();
+  }, []);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null
@@ -41,19 +80,16 @@ export default function NewLeads() {
   }
 
   const handleDownloadTemplate = () => {
-    // In a real application, this would generate and download an Excel template
-    console.log("Downloading template...")
-    // Mock implementation - would be replaced with actual API call
-    const link = document.createElement("a")
-    link.href = "/api/leads/template" // This would be a real endpoint in production
-    link.download = "lead_upload_template.xlsx"
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    // Use the new MasterService method to download the template with specified headers
+    MasterService.downloadLeadTemplate();
   }
 
   const handleUpload = () => {
-    if (!selectedFile) return
+    if (!selectedFile || !selectedAnchor || !selectedProgram) {
+      // Add validation - don't proceed if anchor or program not selected
+      alert("Please select both Anchor and Program before uploading");
+      return;
+    }
 
     setUploadStatus("processing")
 
@@ -106,6 +142,32 @@ export default function NewLeads() {
       }
 
       setUploadResult(mockResult)
+      
+      // Determine upload status
+      const isSuccess = mockResult.failed === 0;
+      const status = isSuccess ? "Success" : "Failure";
+      
+      // Format current date (e.g., "10-Apr-2025")
+      const currentDate = new Date();
+      const options: Intl.DateTimeFormatOptions = { 
+        day: '2-digit', 
+        month: 'short', 
+        year: 'numeric' 
+      };
+      const formattedDate = currentDate.toLocaleDateString('en-US', options)
+        .replace(/(\d+) (\w+) (\d+)/, '$1-$2-$3');
+      
+      // Create new history entry
+      const newHistoryEntry: UploadHistoryItem = {
+        fileName: selectedFile.name,
+        uploadDate: formattedDate,
+        uploadedBy: userEmail || "Unknown User",
+        status: status as "Success" | "Failure",
+        responseFile: `${selectedFile.name.split('.')[0]}_result.xlsx`
+      };
+      
+      // Update history with new entry at the beginning
+      setUploadHistory(prev => [newHistoryEntry, ...prev]);
       
       if (mockResult.failed === 0) {
         setUploadStatus("success")
@@ -205,6 +267,46 @@ export default function NewLeads() {
               </div>
 
               <div className="space-y-4">
+                {/* Anchor dropdown */}
+                <div>
+                  <Label htmlFor="anchor">Anchor</Label>
+                  <Select 
+                    value={selectedAnchor} 
+                    onValueChange={setSelectedAnchor}
+                  >
+                    <SelectTrigger id="anchor" className="w-full">
+                      <SelectValue placeholder="Select Anchor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {anchorNamesList.map((anchor, index) => (
+                        <SelectItem key={index} value={anchor}>
+                          {anchor}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Program dropdown */}
+                <div>
+                  <Label htmlFor="program">Program</Label>
+                  <Select 
+                    value={selectedProgram} 
+                    onValueChange={setSelectedProgram}
+                  >
+                    <SelectTrigger id="program" className="w-full">
+                      <SelectValue placeholder="Select Program" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {programNamesList.map((program, index) => (
+                        <SelectItem key={index} value={program}>
+                          {program}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div>
                   <Label htmlFor="fileUpload">Upload Excel File</Label>
                   <Input
@@ -303,7 +405,7 @@ export default function NewLeads() {
                 )}
               </div>
             </CardContent>
-            {/* New Summary Section */}
+            {/* Upload Summary Section */}
             <CardContent>
               <h3 className="text-lg font-medium mb-4">Upload Summary</h3>
               <div className="overflow-x-auto">
@@ -318,42 +420,54 @@ export default function NewLeads() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {[
-                      { "Uploaded File": "Poly100425.xlsx", "Uploaded Date": "10-Apr-2025", "Uploaded By": "pratiksha bane", "Status": "Success", "Response": "Poly100425_result.xlsx" },
-                      { "Uploaded File": "Halonix 090425.xlsx", "Uploaded Date": "10-Apr-2025", "Uploaded By": "Asmita Umtekar", "Status": "Success", "Response": "Halonix 090425_result.xlsx" },
-                      { "Uploaded File": "Poly100425.xlsx", "Uploaded Date": "10-Apr-2025", "Uploaded By": "pratiksha bane", "Status": "Failure", "Response": "Poly100425_result.xlsx" },
-                      { "Uploaded File": "Poly100425.xlsx", "Uploaded Date": "10-Apr-2025", "Uploaded By": "pratiksha bane", "Status": "Failure", "Response": "Poly100425_result.xlsx" }
-                    ].map((row, index) => (
-                      <TableRow key={index}>
-                        <TableCell>{row["Uploaded File"]}</TableCell>
-                        <TableCell>{row["Uploaded Date"]}</TableCell>
-                        <TableCell>{row["Uploaded By"]}</TableCell>
-                        <TableCell>
-                          <span
-                            className={cn(
-                              "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
-                              {
-                                "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300":
-                                  row.Status === "Success",
-                                "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300":
-                                  row.Status === "Failure",
-                              }
-                            )}
-                          >
-                            {row.Status === "Success" && <CheckCircle className="mr-1 h-3 w-3" />}
-                            {row.Status === "Failure" && <XCircle className="mr-1 h-3 w-3" />}
-                            {row.Status}
-                          </span>
+                    {uploadHistory.length > 0 ? (
+                      uploadHistory.map((row, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{row.fileName}</TableCell>
+                          <TableCell>{row.uploadDate}</TableCell>
+                          <TableCell>{row.uploadedBy}</TableCell>
+                          <TableCell>
+                            <span
+                              className={cn(
+                                "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
+                                {
+                                  "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300":
+                                    row.status === "Success",
+                                  "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300":
+                                    row.status === "Failure",
+                                }
+                              )}
+                            >
+                              {row.status === "Success" && <CheckCircle className="mr-1 h-3 w-3" />}
+                              {row.status === "Failure" && <XCircle className="mr-1 h-3 w-3" />}
+                              {row.status}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Button variant="link" className="p-0 h-auto text-blue-500 hover:text-blue-700">
+                              <FileText className="h-4 w-4 mr-1" />
+                              {row.responseFile}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={5} className="text-center py-4 text-gray-500">
+                          No upload history available
                         </TableCell>
-                        <TableCell>{row.Response}</TableCell>
                       </TableRow>
-                    ))}
+                    )}
                   </TableBody>
                 </Table>
               </div>
             </CardContent>
             <CardFooter>
-              <Button onClick={handleUpload} disabled={!selectedFile || uploadStatus === "processing"} className="gap-2">
+              <Button 
+                onClick={handleUpload} 
+                disabled={!selectedFile || !selectedAnchor || !selectedProgram || uploadStatus === "processing"} 
+                className="gap-2"
+              >
                 <Upload className="h-4 w-4" />
                 Upload Leads
               </Button>
