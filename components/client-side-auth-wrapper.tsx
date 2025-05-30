@@ -1,7 +1,6 @@
 "use client"
 
 import { ReactNode, useEffect } from "react"
-import { AuthProvider } from "./auth-provider"
 import RouteGuard from "./route-guard"
 import dbUtils from "@/lib/dbUtils"
 
@@ -21,8 +20,6 @@ export default function ClientSideAuthWrapper({ children }: { children: ReactNod
   }, []);
 
   return (
-    <AuthProvider>
-      <RouteGuard>{children}</RouteGuard>
-    </AuthProvider>
+    <RouteGuard>{children}</RouteGuard>
   )
 } 
