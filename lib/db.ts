@@ -6,6 +6,7 @@
 import Dexie, { Table } from 'dexie';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
+import { LEAD_TEMPLATE_HEADERS } from './constants';
 
 // --- TypeScript interfaces for master data stores ---
 export interface AnchorMaster {
@@ -68,7 +69,29 @@ export interface RMBranch {
   active: boolean;
 }
 
-type StoreName = 'anchor_master' | 'hierarchy_master' | 'holiday_master' | 'pincode_branch' | 'rm_branch';
+export interface ErrorCodeMaster {
+  id: string; // Typically same as errorCode
+  errorCode: string; // PK for querying
+  description: string;
+  module: string; // e.g., 'Lead Upload', 'RM Assignment'
+  severity: 'Error' | 'Warning' | 'Info';
+}
+
+export interface ProcessedLead {
+  id: string; // Primary Key, e.g., `${uploadBatchId}-${originalRowNumber}`
+  uploadBatchId: string; // To group leads from the same file
+  processedTimestamp: string; // ISO string
+  anchorNameSelected: string; // Anchor selected in UI
+  programNameSelected: string; // Program selected in UI
+  originalRowNumber: number;
+  originalData: Record<string, any>; // All columns from uploaded Excel row
+  assignedRmAdid: string | null;
+  assignmentStatus: string;
+  errorCode: string | null;
+  errorDescription: string | null;
+}
+
+type StoreName = 'anchor_master' | 'hierarchy_master' | 'holiday_master' | 'pincode_branch' | 'rm_branch' | 'error_codes' | 'processed_leads';
 
 type StoreTableMap = {
   anchor_master: AnchorMaster;
@@ -76,6 +99,8 @@ type StoreTableMap = {
   holiday_master: HolidayMaster;
   pincode_branch: PincodeBranch;
   rm_branch: RMBranch;
+  error_codes: ErrorCodeMaster;
+  processed_leads: ProcessedLead;
 };
 
 // --- Dexie Database Setup ---
@@ -85,6 +110,8 @@ class SCFLeadManagementDB extends Dexie {
   holiday_master!: Table<HolidayMaster, string>;
   pincode_branch!: Table<PincodeBranch, string>;
   rm_branch!: Table<RMBranch, string>;
+  error_codes!: Table<ErrorCodeMaster, string>;
+  processed_leads!: Table<ProcessedLead, string>;
 
   constructor() {
     super('SCFLeadManagement');
@@ -104,6 +131,12 @@ class SCFLeadManagementDB extends Dexie {
       pincode_branch: 'id, pincode, branchCode, branchName, city, state, region, active',
       rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
     });
+
+    // Version 3: Add error_codes and processed_leads tables
+    this.version(3).stores({
+      error_codes: '++id, errorCode, module, severity',
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode'
+    });
   }
 }
 
@@ -116,6 +149,8 @@ const STORE_FIELDS: Record<StoreName, string[]> = {
   holiday_master: ['id', 'Date', 'HolidayType', 'date', 'name', 'type', 'description'],
   pincode_branch: ['id', 'pincode', 'branchCode', 'branchName', 'city', 'state', 'region', 'active'],
   rm_branch: ['id', 'rmId', 'rmName', 'branchCode', 'branchName', 'region', 'role', 'active'],
+  error_codes: ['id', 'errorCode', 'description', 'module', 'severity'],
+  processed_leads: []  // No direct upload via master UI, populated programmatically
 };
 
 // --- MasterService Class ---
@@ -339,30 +374,7 @@ export class MasterService {
 
   // Custom lead template download
   static downloadLeadTemplate() {
-    const headers = [
-      "Sr. No.",
-      "Program Type",
-      "Type of relationship",
-      "Name of the Firm",
-      "PAN Number",
-      "Contact Person",
-      "Mobile No.",
-      "Email Address",
-      "Address",
-      "Pincode",
-      "City",
-      "RM ADID",
-      "No. of months of relationship with Dealer",
-      "Tenor (in days)",
-      "Sales to Dealer (Actual)(in INR) 2020-21",
-      "Sales to Dealer (Actual)(in INR) 2021-22",
-      "Sales to Dealer (Actual)(in INR) 2022-23",
-      "Projected Sales to Dealer (Projected)(in INR) 2023-24",
-      "Dealer Turnover(in INR) 2022-23",
-      "Limit Recommended (in INR)",
-      "Dealer Payment Track Record",
-      "Dealer overdue with anchor (No. of times in last 12 months)"
-    ];
+    const headers = LEAD_TEMPLATE_HEADERS;
     const ws = XLSX.utils.aoa_to_sheet([headers]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Template');

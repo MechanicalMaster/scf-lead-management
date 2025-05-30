@@ -19,7 +19,7 @@ interface MasterLayoutProps {
     date: string
     user: string
   }
-  storeName?: "anchor_master" | "hierarchy_master" | "holiday_master" | "pincode_branch" | "rm_branch"
+  storeName?: "anchor_master" | "hierarchy_master" | "holiday_master" | "pincode_branch" | "rm_branch" | "error_codes"
 }
 
 export default function MasterLayout({ 

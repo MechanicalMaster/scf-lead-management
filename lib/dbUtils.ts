@@ -1,7 +1,8 @@
 // lib/dbUtils.ts
 // Helper utilities for working with the database
 
-import db, { AnchorMaster, HierarchyMaster, HolidayMaster, PincodeBranch, RMBranch, MasterService } from './db';
+import db, { AnchorMaster, HierarchyMaster, HolidayMaster, PincodeBranch, RMBranch, MasterService, ErrorCodeMaster } from './db';
+import { ERROR_CODES } from './constants';
 
 /**
  * Mapping functions to handle field compatibility between UI components and DB fields
@@ -165,6 +166,23 @@ export async function initializeDBIfEmpty() {
       console.log("Initialized sample holiday data");
     }
     
+    // Check if error_codes is empty
+    const errorCodesCount = await db.error_codes.count();
+    if (errorCodesCount === 0) {
+      // Initialize error codes from constants
+      const errorCodesList: ErrorCodeMaster[] = Object.values(ERROR_CODES).map(ec => ({
+        id: ec.code,
+        errorCode: ec.code,
+        description: ec.description,
+        module: ec.module,
+        severity: ec.severity as 'Error' | 'Warning' | 'Info'
+      }));
+      
+      // Insert error codes
+      await db.error_codes.bulkAdd(errorCodesList);
+      console.log("Initialized error codes data");
+    }
+    
     return { success: true };
   } catch (error: any) {
     console.error("Error initializing DB:", error);
@@ -182,7 +200,9 @@ export async function getMasterDataCounts() {
       hierarchy_master: await db.hierarchy_master.count(),
       holiday_master: await db.holiday_master.count(),
       pincode_branch: await db.pincode_branch.count(),
-      rm_branch: await db.rm_branch.count()
+      rm_branch: await db.rm_branch.count(),
+      error_codes: await db.error_codes.count(),
+      processed_leads: await db.processed_leads.count()
     };
     return { success: true, data: counts };
   } catch (error: any) {

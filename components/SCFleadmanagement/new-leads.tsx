@@ -10,25 +10,34 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { MasterService } from "@/lib/db"
+import db, { MasterService } from "@/lib/db"
 import { useAuth } from "@/components/auth-provider"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
+import { LEAD_TEMPLATE_HEADERS, ERROR_CODES } from "@/lib/constants"
+import type { PincodeBranch, RMBranch, ErrorCodeMaster, ProcessedLead } from "@/lib/db"
+import { v4 as uuidv4 } from 'uuid';
 
-type UploadStatus = "idle" | "processing" | "partial" | "success" | "failed"
+type UploadStatus = "idle" | "processing" | "validating" | "partial" | "success" | "failed"
 type RowStatus = "success" | "failed" | "warning"
 
+interface UploadResultRow {
+  rowNumber: number; // This is the originalExcelRowNumber
+  dealerId: string; // Key field from Excel for display
+  anchorId: string; // Key field from Excel for display
+  rmName: string; // Original RM Name from Excel, if any
+  assignedRmAdid?: string; // The finally assigned RM ADID
+  status: RowStatus; // UI status: 'success', 'failed'
+  error?: string; // This will be the errorDescription for UI
+}
+
 interface UploadResult {
-  total: number
-  success: number
-  failed: number
-  rows: {
-    rowNumber: number
-    dealerId: string
-    anchorId: string
-    rmName: string
-    status: RowStatus
-    error?: string
-  }[]
+  total: number;
+  success: number;
+  failed: number;
+  rows: UploadResultRow[]; // For UI display
+  uploadBatchId?: string; // Added to link with processed leads
 }
 
 interface UploadHistoryItem {
@@ -37,6 +46,7 @@ interface UploadHistoryItem {
   uploadedBy: string
   status: "Success" | "Failure"
   responseFile: string
+  uploadBatchId?: string // Added for reference to processed leads
 }
 
 export default function NewLeads() {
@@ -48,6 +58,8 @@ export default function NewLeads() {
   const [selectedAnchor, setSelectedAnchor] = useState<string>("")
   const [selectedProgram, setSelectedProgram] = useState<string>("")
   const [uploadHistory, setUploadHistory] = useState<UploadHistoryItem[]>([])
+  const [fileValidationMessage, setFileValidationMessage] = useState<string>("")
+  const [isFileValid, setIsFileValid] = useState<boolean>(false)
   const { userEmail } = useAuth()
 
   // Fetch anchor and program names on component mount
@@ -72,80 +84,251 @@ export default function NewLeads() {
     fetchDropdownData();
   }, []);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] || null
     setSelectedFile(file)
     setUploadStatus("idle")
     setUploadResult(null)
+    setFileValidationMessage("")
+    setIsFileValid(false)
+    
+    // Validate file headers if a file is selected
+    if (file) {
+      try {
+        setUploadStatus("validating")
+        
+        // Read the file
+        const arrayBuffer = await file.arrayBuffer()
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+        const sheetName = workbook.SheetNames[0]
+        const worksheet = workbook.Sheets[sheetName]
+        
+        // Extract headers from the first row
+        const headers: string[] = []
+        const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1')
+        
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+          const cell = worksheet[XLSX.utils.encode_cell({r: range.s.r, c: C})]
+          headers.push(cell?.v || '')
+        }
+        
+        // Check if all required headers are present
+        const missingHeaders = LEAD_TEMPLATE_HEADERS.filter(header => 
+          !headers.includes(header)
+        )
+        
+        if (missingHeaders.length > 0) {
+          setFileValidationMessage(`Invalid file format. Missing headers: ${missingHeaders.join(', ')}`)
+          setIsFileValid(false)
+          setUploadStatus("idle")
+        } else {
+          setFileValidationMessage("File format is valid. Ready to upload.")
+          setIsFileValid(true)
+          setUploadStatus("idle")
+        }
+      } catch (error) {
+        console.error("Error validating file:", error)
+        setFileValidationMessage("Error validating file. Please try again.")
+        setIsFileValid(false)
+        setUploadStatus("idle")
+      }
+    }
   }
 
   const handleDownloadTemplate = () => {
-    // Use the new MasterService method to download the template with specified headers
     MasterService.downloadLeadTemplate();
   }
 
-  const handleUpload = () => {
+  const handleUpload = async () => {
     if (!selectedFile || !selectedAnchor || !selectedProgram) {
-      // Add validation - don't proceed if anchor or program not selected
       alert("Please select both Anchor and Program before uploading");
       return;
     }
 
-    setUploadStatus("processing")
+    if (!isFileValid) {
+      alert("Please select a valid file with the correct headers");
+      return;
+    }
 
-    // Simulate API call to upload and process file
-    setTimeout(() => {
-      // Mock response - in real implementation this would come from the server
-      const mockResult: UploadResult = {
-        total: 5,
-        success: 3,
-        failed: 2,
-        rows: [
-          {
-            rowNumber: 1,
-            dealerId: "DLR-1234",
-            anchorId: "ANC-5678",
-            rmName: "John Smith",
-            status: "success",
-          },
-          {
-            rowNumber: 2,
-            dealerId: "DLR-2345",
-            anchorId: "ANC-6789",
-            rmName: "Jane Doe",
-            status: "success",
-          },
-          {
-            rowNumber: 3,
-            dealerId: "DLR-3456",
-            anchorId: "ANC-7890",
-            rmName: "Robert Johnson",
-            status: "success",
-          },
-          {
-            rowNumber: 4,
-            dealerId: "DLR-4567",
-            anchorId: "",
-            rmName: "Emily Davis",
-            status: "failed",
-            error: "Anchor ID is required",
-          },
-          {
-            rowNumber: 5,
-            dealerId: "DLR-5678",
-            anchorId: "ANC-9012",
-            rmName: "",
-            status: "failed",
-            error: "RM Name is required",
-          },
-        ],
-      }
+    setUploadStatus("processing");
 
-      setUploadResult(mockResult)
+    try {
+      // Generate a unique ID for this upload batch
+      const uploadBatchId = uuidv4();
       
-      // Determine upload status
-      const isSuccess = mockResult.failed === 0;
-      const status = isSuccess ? "Success" : "Failure";
+      // Read the file
+      const arrayBuffer = await selectedFile.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      // Convert to JSON
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' }) as Record<string, any>[];
+      
+      // Prepare the upload result
+      const uploadResult: UploadResult = {
+        total: jsonData.length,
+        success: 0,
+        failed: 0,
+        rows: [],
+        uploadBatchId
+      };
+      
+      // Fetch the required master data for lookups
+      const [pincodeResult, rmBranchResult, errorCodesResult] = await Promise.all([
+        MasterService.getRecords('pincode_branch', {}, undefined, 1000, 0),
+        MasterService.getRecords('rm_branch', {}, undefined, 1000, 0),
+        MasterService.getRecords('error_codes', {}, undefined, 1000, 0)
+      ]);
+      
+      // Create maps for efficient lookups
+      const pincodeMap = new Map<string, PincodeBranch>();
+      const rmBranchMapByBranchCode = new Map<string, RMBranch[]>();
+      const errorCodesMap = new Map<string, string>();
+      
+      if (pincodeResult.success && pincodeResult.data) {
+        (pincodeResult.data as PincodeBranch[]).forEach(item => {
+          pincodeMap.set(String(item.pincode), item);
+        });
+      }
+      
+      if (rmBranchResult.success && rmBranchResult.data) {
+        (rmBranchResult.data as RMBranch[]).forEach(item => {
+          const branches = rmBranchMapByBranchCode.get(item.branchCode) || [];
+          branches.push(item);
+          rmBranchMapByBranchCode.set(item.branchCode, branches);
+        });
+      }
+      
+      if (errorCodesResult.success && errorCodesResult.data) {
+        (errorCodesResult.data as ErrorCodeMaster[]).forEach(item => {
+          errorCodesMap.set(item.errorCode, item.description);
+        });
+      }
+      
+      // Array to store processed leads for database storage
+      const leadsToPersist: ProcessedLead[] = [];
+      
+      // Process each row
+      for (let index = 0; index < jsonData.length; index++) {
+        const originalRow = jsonData[index] as Record<string, any>;
+        const originalRowNumber = index + 2; // Excel row (1-based with header row)
+        
+        // Initialize the processed lead entry
+        const processedLeadEntry: Partial<ProcessedLead> = {
+          id: `${uploadBatchId}-${originalRowNumber}`,
+          uploadBatchId,
+          processedTimestamp: new Date().toISOString(),
+          anchorNameSelected: selectedAnchor,
+          programNameSelected: selectedProgram,
+          originalRowNumber,
+          originalData: originalRow,
+          assignedRmAdid: null,
+          assignmentStatus: "",
+          errorCode: null,
+          errorDescription: null
+        };
+        
+        // Initialize UI row object
+        const uiRow: UploadResultRow = {
+          rowNumber: originalRowNumber,
+          dealerId: String(originalRow["Name of the Firm"] || `Row ${originalRowNumber}`),
+          anchorId: String(originalRow["PAN Number"] || ""),
+          rmName: String(originalRow["RM ADID"] || ""),
+          status: "failed", // Default to failed, change if successful
+          error: ""
+        };
+        
+        // Check if RM ADID is already provided in the Excel
+        if (originalRow["RM ADID"] && String(originalRow["RM ADID"]).trim() !== "") {
+          processedLeadEntry.assignedRmAdid = String(originalRow["RM ADID"]);
+          processedLeadEntry.assignmentStatus = "RM Assigned (Manual)";
+          processedLeadEntry.errorCode = "INFO_RM_MANUAL";
+          processedLeadEntry.errorDescription = "RM assigned from Excel";
+          
+          uiRow.assignedRmAdid = String(originalRow["RM ADID"]);
+          uiRow.status = "success";
+          uploadResult.success++;
+        } else {
+          // Automatic assignment based on pincode
+          const pincode = String(originalRow["Pincode"] || "").trim();
+          
+          if (!pincode) {
+            processedLeadEntry.errorCode = "ERR_PIN_NF";
+            processedLeadEntry.assignmentStatus = "Failed: Pincode not found";
+            uiRow.error = "Pincode not found";
+            uploadResult.failed++;
+          } else {
+            const pincodeEntry = pincodeMap.get(pincode);
+            
+            if (!pincodeEntry) {
+              processedLeadEntry.errorCode = "ERR_PIN_NF";
+              processedLeadEntry.assignmentStatus = "Failed: Pincode not found";
+              uiRow.error = "Pincode not found";
+              uploadResult.failed++;
+            } else {
+              const branchCode = pincodeEntry.branchCode;
+              const rmList = rmBranchMapByBranchCode.get(branchCode) || [];
+              
+              if (rmList.length === 0) {
+                processedLeadEntry.errorCode = "ERR_BR_NMAP";
+                processedLeadEntry.assignmentStatus = "Failed: Branch not mapped to RM";
+                uiRow.error = "Branch not mapped to RM";
+                uploadResult.failed++;
+              } else {
+                // Find active RM first, then any RM
+                const activeRM = rmList.find(rm => rm.active);
+                const anyRM = rmList[0];
+                const selectedRM = activeRM || anyRM;
+                
+                if (selectedRM) {
+                  processedLeadEntry.assignedRmAdid = selectedRM.rmId;
+                  processedLeadEntry.assignmentStatus = "RM Assigned (Auto)";
+                  processedLeadEntry.errorCode = "INFO_RM_AUTO";
+                  processedLeadEntry.errorDescription = "RM assigned automatically";
+                  
+                  uiRow.assignedRmAdid = selectedRM.rmId;
+                  uiRow.status = "success";
+                  uploadResult.success++;
+                } else {
+                  processedLeadEntry.errorCode = "ERR_RM_NBR";
+                  processedLeadEntry.assignmentStatus = "Failed: No RM for Branch";
+                  uiRow.error = "No RM for Branch";
+                  uploadResult.failed++;
+                }
+              }
+            }
+          }
+        }
+        
+        // Make sure error description is set
+        if (processedLeadEntry.errorCode && !processedLeadEntry.errorDescription) {
+          processedLeadEntry.errorDescription = errorCodesMap.get(processedLeadEntry.errorCode) || processedLeadEntry.errorCode;
+        }
+        
+        // Update UI row error display
+        if (uiRow.status === "failed" && !uiRow.error) {
+          uiRow.error = processedLeadEntry.errorDescription || "Unknown error";
+        }
+        
+        // Add to arrays
+        leadsToPersist.push(processedLeadEntry as ProcessedLead);
+        uploadResult.rows.push(uiRow);
+      }
+      
+      // Save all processed leads to database
+      try {
+        // Using the processed_leads table we created
+        await db.processed_leads.bulkAdd(leadsToPersist);
+      } catch (dbError) {
+        console.error("Error saving processed leads:", dbError);
+      }
+      
+      // Update the UI with the result
+      setUploadResult(uploadResult);
+      
+      // Determine overall upload status
+      const status = uploadResult.failed === 0 ? "Success" : "Failure";
       
       // Format current date (e.g., "10-Apr-2025")
       const currentDate = new Date();
@@ -163,34 +346,87 @@ export default function NewLeads() {
         uploadDate: formattedDate,
         uploadedBy: userEmail || "Unknown User",
         status: status as "Success" | "Failure",
-        responseFile: `${selectedFile.name.split('.')[0]}_result.xlsx`
+        responseFile: `${selectedFile.name.split('.')[0]}_result.xlsx`,
+        uploadBatchId
       };
       
       // Update history with new entry at the beginning
       setUploadHistory(prev => [newHistoryEntry, ...prev]);
       
-      if (mockResult.failed === 0) {
-        setUploadStatus("success")
-      } else if (mockResult.success === 0) {
-        setUploadStatus("failed")
+      // Update upload status for the UI
+      if (uploadResult.failed === 0) {
+        setUploadStatus("success");
+      } else if (uploadResult.success === 0) {
+        setUploadStatus("failed");
       } else {
-        setUploadStatus("partial")
+        setUploadStatus("partial");
       }
-    }, 1500) // Simulate processing time
+      
+    } catch (error) {
+      console.error("Error processing file:", error);
+      setUploadStatus("failed");
+    }
   }
 
-  const handleDownloadResults = () => {
-    if (!uploadResult) return
+  const handleDownloadResults = async () => {
+    if (!uploadResult || !uploadResult.uploadBatchId) return;
     
-    // In a real application, this would generate and download an Excel with results
-    console.log("Downloading results...")
-    // Mock implementation - would be replaced with actual API call
-    const link = document.createElement("a")
-    link.href = "/api/leads/results" // This would be a real endpoint in production
-    link.download = "lead_upload_results.xlsx"
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    try {
+      // Fetch the processed leads from the database
+      const processedLeads = await db.processed_leads
+        .where('uploadBatchId')
+        .equals(uploadResult.uploadBatchId)
+        .toArray();
+      
+      if (processedLeads.length === 0) {
+        console.error("No processed leads found for this batch");
+        return;
+      }
+      
+      // Define headers for the response Excel including assignment results
+      const responseExcelHeaders = [
+        ...LEAD_TEMPLATE_HEADERS, 
+        "Assigned RM ADID", 
+        "Assignment Status", 
+        "Error Code", 
+        "Error Description"
+      ];
+      
+      // Create sheet data with headers as first row
+      const sheetData = [responseExcelHeaders];
+      
+      // Add each processed lead to the sheet data
+      processedLeads.forEach((lead) => {
+        const excelRow: any[] = [];
+        
+        // Add original data in the same order as the template headers
+        LEAD_TEMPLATE_HEADERS.forEach(header => {
+          // Get value from originalData or empty string if not found
+          const value = lead.originalData[header] || '';
+          excelRow.push(value);
+        });
+        
+        // Add assignment results
+        excelRow.push(lead.assignedRmAdid || '');
+        excelRow.push(lead.assignmentStatus || '');
+        excelRow.push(lead.errorCode || '');
+        excelRow.push(lead.errorDescription || '');
+        
+        // Add row to sheet data
+        sheetData.push(excelRow);
+      });
+      
+      // Create Excel workbook and download
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Processed Leads');
+      const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      const blob = new Blob([wbout], { type: 'application/octet-stream' });
+      saveAs(blob, `lead_upload_results_${uploadResult.uploadBatchId}.xlsx`);
+      
+    } catch (error) {
+      console.error("Error downloading results:", error);
+    }
   }
 
   const renderUploadAlert = () => {
@@ -319,6 +555,12 @@ export default function NewLeads() {
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     Supported formats: .xlsx, .xls
                   </p>
+                  
+                  {fileValidationMessage && (
+                    <div className={`mt-2 text-sm p-2 rounded ${isFileValid ? 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-300' : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300'}`}>
+                      {fileValidationMessage}
+                    </div>
+                  )}
                 </div>
 
                 {renderUploadAlert()}

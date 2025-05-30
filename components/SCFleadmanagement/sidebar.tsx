@@ -190,6 +190,13 @@ export default function Sidebar() {
                       >
                         Anchor Master
                       </Link>
+                      <Link
+                        href="/masters/error-code-master"
+                        onClick={handleNavigation}
+                        className="flex items-center py-2 text-sm transition-colors text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                      >
+                        Error Code Master
+                      </Link>
                     </div>
                   )}
                 </div>
