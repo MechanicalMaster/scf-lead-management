@@ -1,65 +1,103 @@
 "use client"
 
 import { useState } from "react"
-import { X, Upload, Plus, Trash2 } from "lucide-react"
+import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import db from "@/lib/db"
+import { stageToFlagMap } from "@/lib/lead-workflow"
+import { createLeadCommunication } from "@/lib/lead-workflow"
 
 interface Lead {
   id: string
+  processedLeadId: string
+  workflowStateId: string
   dealerName: string
   anchorName: string
   rmName: string
+  rmId: string
   lastUpdated: string
   ageingBucket: string
   lastActionDate: string
-  flag: "With RM" | "Escalation 1" | "Escalation 2" | "With PSM" | "Under Progress" | "Dropped"
-}
-
-interface Attachment {
-  id: string
-  name: string
-  size: string
-  type: string
-  uploadDate: string
+  flag: string
+  currentStage: string
 }
 
 interface EditLeadModalProps {
   lead: Lead
   isOpen: boolean
   onClose: () => void
+  onSave?: () => void
 }
 
-export default function EditLeadModal({ lead, isOpen, onClose }: EditLeadModalProps) {
+// Define a mapping from flag to currentStage
+const flagToStageMap: Record<string, string> = Object.fromEntries(
+  Object.entries(stageToFlagMap).map(([stage, flag]) => [flag, stage])
+);
+
+export default function EditLeadModal({ lead, isOpen, onClose, onSave }: EditLeadModalProps) {
   const [flag, setFlag] = useState(lead.flag)
-  const [attachments, setAttachments] = useState<Attachment[]>([
-    {
-      id: "1",
-      name: "lead_proposal.pdf",
-      size: "2.4 MB",
-      type: "PDF",
-      uploadDate: "2025-03-25",
-    },
-    {
-      id: "2",
-      name: "customer_requirements.docx",
-      size: "1.8 MB",
-      type: "DOCX",
-      uploadDate: "2025-03-24",
-    },
-  ])
+  const [notes, setNotes] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleSave = () => {
-    // Here you would typically save the changes to your backend
-    console.log("Saving lead with updated flag:", flag)
-    onClose()
-  }
-
-  const handleRemoveAttachment = (id: string) => {
-    setAttachments(attachments.filter((attachment) => attachment.id !== id))
+  const handleSave = async () => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      
+      // Convert selected flag back to a stage value
+      const newStage = flagToStageMap[flag] || lead.currentStage;
+      
+      // If stage didn't change, don't update
+      if (newStage === lead.currentStage && !notes) {
+        onClose();
+        return;
+      }
+      
+      const now = new Date().toISOString();
+      const updates: any = {
+        updatedAt: now
+      };
+      
+      // If stage changed, update stage-related fields
+      if (newStage !== lead.currentStage) {
+        updates.currentStage = newStage;
+        updates.lastStageChangeTimestamp = now;
+      }
+      
+      // Update the workflow state
+      await db.lead_workflow_states.update(lead.workflowStateId, updates);
+      
+      // If notes were provided, add a communication record
+      if (notes.trim()) {
+        await createLeadCommunication({
+          processedLeadId: lead.processedLeadId,
+          communicationType: 'StageUpdate',
+          title: 'Manual Stage Update',
+          description: notes,
+          senderType: 'RM',
+          senderAdidOrEmail: lead.rmId || 'system',
+          recipientAdidOrEmail: 'system',
+          relatedWorkflowStateId: lead.workflowStateId
+        });
+      }
+      
+      // Call onSave callback if provided to refresh the leads list
+      if (onSave) {
+        onSave();
+      }
+      
+      onClose();
+    } catch (err) {
+      console.error("Error updating lead:", err);
+      setError("Failed to update lead. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   if (!isOpen) return null
@@ -91,7 +129,7 @@ export default function EditLeadModal({ lead, isOpen, onClose }: EditLeadModalPr
             </div>
             <div>
               <Label htmlFor="lastUpdated">Last Updated</Label>
-              <Input id="lastUpdated" value={lead.lastUpdated} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
+              <Input id="lastUpdated" value={lead.lastUpdated.split('T')[0] || lead.lastUpdated} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
             </div>
             <div>
               <Label htmlFor="ageingBucket">Ageing Bucket</Label>
@@ -106,7 +144,7 @@ export default function EditLeadModal({ lead, isOpen, onClose }: EditLeadModalPr
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div>
               <Label htmlFor="flag">Flag</Label>
-              <Select value={flag} onValueChange={(value: typeof flag) => setFlag(value)}>
+              <Select value={flag} onValueChange={setFlag}>
                 <SelectTrigger id="flag">
                   <SelectValue placeholder="Select flag" />
                 </SelectTrigger>
@@ -124,16 +162,29 @@ export default function EditLeadModal({ lead, isOpen, onClose }: EditLeadModalPr
 
           <div className="mb-6">
             <Label htmlFor="notes">Notes</Label>
-            <Textarea id="notes" placeholder="Add notes about this lead..." className="min-h-[100px]" />
+            <Textarea 
+              id="notes" 
+              placeholder="Add notes about this lead..." 
+              className="min-h-[100px]"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
           </div>
 
+          {error && (
+            <div className="mb-4 p-3 text-sm text-red-600 bg-red-100 rounded-md dark:bg-red-900/30 dark:text-red-400">
+              {error}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-2 p-4 border-t border-gray-200 dark:border-[#1F1F23]">
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </Button>
-          <Button onClick={handleSave}>Save Changes</Button>
+          <Button onClick={handleSave} disabled={isSubmitting}>
+            {isSubmitting ? "Saving..." : "Save Changes"}
+          </Button>
         </div>
       </div>
     </div>
