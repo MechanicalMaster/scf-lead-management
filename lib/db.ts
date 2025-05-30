@@ -130,6 +130,16 @@ export class MasterService {
     }
   }
 
+  // Get total records count
+  static async getTotalRecords<T extends StoreName>(storeName: T): Promise<{ success: boolean, count?: number, error?: string }> {
+    try {
+      const count = await db[storeName].count();
+      return { success: true, count };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
   // Get records with optional filters and sorting
   static async getRecords<T extends StoreName>(storeName: T, filters: Partial<StoreTableMap[T]> = {}, sortBy?: keyof StoreTableMap[T], limit = 20, offset = 0) {
     try {
@@ -189,7 +199,6 @@ export class MasterService {
       const worksheet = workbook.Sheets[sheetName];
       const json: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
       const expectedFields = STORE_FIELDS[storeName];
-      const validRecords: StoreTableMap[T][] = [];
       const errors: string[] = [];
       
       for (let i = 0; i < json.length; i++) {
@@ -206,19 +215,71 @@ export class MasterService {
           row.active = row.active === true || row.active === 'true' || row.active === 1 || row.active === '1';
         }
         
+        // Ensure pincode is always a string in pincode_branch
+        if (storeName === 'pincode_branch' && 'pincode' in row) {
+          row.pincode = String(row.pincode);
+        }
+        
+        // Ensure all ID and code fields are strings
+        if ('id' in row) row.id = String(row.id);
+        if ('branchCode' in row) row.branchCode = String(row.branchCode);
+        if ('rmId' in row) row.rmId = String(row.rmId);
+        
         // Handle field mappings for backward compatibility
         if (storeName === 'holiday_master') {
+          // Format Excel dates to ISO format
+          if (row.date) {
+            if (typeof row.date === 'number' || !isNaN(Number(row.date))) {
+              try {
+                const excelDate = typeof row.date === 'number' ? row.date : Number(row.date);
+                const jsDate = new Date(Math.round((excelDate - 25569) * 86400 * 1000));
+                row.date = jsDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+              } catch (e) {
+                console.error("Error converting date:", e);
+              }
+            }
+          }
+          
+          if (row.Date) {
+            if (typeof row.Date === 'number' || !isNaN(Number(row.Date))) {
+              try {
+                const excelDate = typeof row.Date === 'number' ? row.Date : Number(row.Date);
+                const jsDate = new Date(Math.round((excelDate - 25569) * 86400 * 1000));
+                row.Date = jsDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+              } catch (e) {
+                console.error("Error converting Date:", e);
+              }
+            }
+          }
+          
           // If new fields are present but old fields aren't, copy values
           if (row.date && !row.Date) row.Date = row.date;
           if (row.type && !row.HolidayType) row.HolidayType = row.type;
         }
-        
-        validRecords.push(row as StoreTableMap[T]);
       }
       
-      // Chunked insert (100 at a time)
-      for (let i = 0; i < validRecords.length; i += 100) {
-        await db[storeName].bulkPut(validRecords.slice(i, i + 100));
+      // Use the database's specific table method to avoid type issues
+      if (storeName === 'anchor_master') {
+        // Process 100 records at a time to avoid overwhelming the database
+        for (let i = 0; i < json.length; i += 100) {
+          await db.anchor_master.bulkPut(json.slice(i, i + 100));
+        }
+      } else if (storeName === 'hierarchy_master') {
+        for (let i = 0; i < json.length; i += 100) {
+          await db.hierarchy_master.bulkPut(json.slice(i, i + 100));
+        }
+      } else if (storeName === 'holiday_master') {
+        for (let i = 0; i < json.length; i += 100) {
+          await db.holiday_master.bulkPut(json.slice(i, i + 100));
+        }
+      } else if (storeName === 'pincode_branch') {
+        for (let i = 0; i < json.length; i += 100) {
+          await db.pincode_branch.bulkPut(json.slice(i, i + 100));
+        }
+      } else if (storeName === 'rm_branch') {
+        for (let i = 0; i < json.length; i += 100) {
+          await db.rm_branch.bulkPut(json.slice(i, i + 100));
+        }
       }
       
       return { success: errors.length === 0, errors };

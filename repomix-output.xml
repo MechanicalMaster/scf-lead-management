@@ -170,6 +170,7 @@ hooks/
   use-toast.ts
 lib/
   db.ts
+  dbUtils.ts
   downloadTemplate.ts
   utils.ts
 public/
@@ -190,259 +191,6 @@ tsconfig.json
 
 <files>
 This section contains the contents of the repository's files.
-
-<file path="lib/db.ts">
-// lib/db.ts
-// MasterService: IndexedDB (Dexie.js) for Master Data Management
-// Implements CRUD, Excel upload/download, and search for all master stores.
-// Dependencies: dexie, xlsx, file-saver
-
-import Dexie, { Table } from 'dexie';
-import * as XLSX from 'xlsx';
-import { saveAs } from 'file-saver';
-
-// --- TypeScript interfaces for master data stores ---
-export interface AnchorMaster {
-  id: string;
-  anchorname: string;
-  programname: string;
-  [key: string]: any;
-}
-
-export interface HierarchyMaster {
-  id: string;
-  employeeName: string;
-  [key: string]: any;
-}
-
-export interface HolidayMaster {
-  id: string;
-  Date: string;
-  HolidayType: string;
-}
-
-export interface PincodeBranch {
-  id: string;
-  pincode: string;
-  branchCode: string;
-  branchName: string;
-  city: string;
-  state: string;
-  region: string;
-  active: boolean;
-}
-
-export interface RMBranch {
-  id: string;
-  rmId: string;
-  rmName: string;
-  branchCode: string;
-  branchName: string;
-  region: string;
-  role: string;
-  active: boolean;
-}
-
-type StoreName = 'anchor_master' | 'hierarchy_master' | 'holiday_master' | 'pincode_branch' | 'rm_branch';
-
-type StoreTableMap = {
-  anchor_master: AnchorMaster;
-  hierarchy_master: HierarchyMaster;
-  holiday_master: HolidayMaster;
-  pincode_branch: PincodeBranch;
-  rm_branch: RMBranch;
-};
-
-// --- Dexie Database Setup ---
-class SCFLeadManagementDB extends Dexie {
-  anchor_master!: Table<AnchorMaster, string>;
-  hierarchy_master!: Table<HierarchyMaster, string>;
-  holiday_master!: Table<HolidayMaster, string>;
-  pincode_branch!: Table<PincodeBranch, string>;
-  rm_branch!: Table<RMBranch, string>;
-
-  constructor() {
-    super('SCFLeadManagement');
-    this.version(1).stores({
-      anchor_master: 'id, anchorname, programname',
-      hierarchy_master: 'id, employeeName',
-      holiday_master: 'id, Date, HolidayType',
-      pincode_branch: 'id, pincode, branchCode, branchName, city, state',
-      rm_branch: 'id, rmId, rmName, branchCode, region',
-    });
-  }
-}
-
-const db = new SCFLeadManagementDB();
-
-// --- Utility: Store fields for Excel templates/validation ---
-const STORE_FIELDS: Record<StoreName, string[]> = {
-  anchor_master: ['id', 'anchorname', 'programname'],
-  hierarchy_master: ['id', 'employeeName'],
-  holiday_master: ['id', 'Date', 'HolidayType'],
-  pincode_branch: ['id', 'pincode', 'branchCode', 'branchName', 'city', 'state', 'region', 'active'],
-  rm_branch: ['id', 'rmId', 'rmName', 'branchCode', 'branchName', 'region', 'role', 'active'],
-};
-
-// --- MasterService Class ---
-export class MasterService {
-  // Add a single record
-  static async createRecord<T extends StoreName>(storeName: T, record: StoreTableMap[T]) {
-    try {
-      await db[storeName].add(record);
-      return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // Get records with optional filters and sorting
-  static async getRecords<T extends StoreName>(storeName: T, filters: Partial<StoreTableMap[T]> = {}, sortBy?: keyof StoreTableMap[T], limit = 20, offset = 0) {
-    try {
-      let collection = db[storeName].toCollection();
-      for (const key in filters) {
-        // @ts-ignore
-        collection = collection.filter((item) => item[key] === filters[key]);
-      }
-      let results = await collection.toArray();
-      if (sortBy) {
-        results = results.sort((a: any, b: any) => (a[sortBy] > b[sortBy] ? 1 : -1));
-      }
-      return { success: true, data: results.slice(offset, offset + limit) };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // Update a record by id
-  static async updateRecord<T extends StoreName>(storeName: T, id: string, updates: Partial<StoreTableMap[T]>) {
-    try {
-      await db[storeName].update(id, updates);
-      return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // Delete a record by id
-  static async deleteRecord<T extends StoreName>(storeName: T, id: string) {
-    try {
-      await db[storeName].delete(id);
-      return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // Search records by indexed field
-  static async searchRecords<T extends StoreName>(storeName: T, field: keyof StoreTableMap[T], value: any, limit = 20, offset = 0) {
-    try {
-      // @ts-ignore
-      let collection = db[storeName].where(field).equals(value);
-      const results = await collection.offset(offset).limit(limit).toArray();
-      return { success: true, data: results };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // Upload Excel: Parse, validate, and store records
-  static async uploadExcel<T extends StoreName>(storeName: T, file: File) {
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const json: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
-      const expectedFields = STORE_FIELDS[storeName];
-      const validRecords: StoreTableMap[T][] = [];
-      const errors: string[] = [];
-      for (let i = 0; i < json.length; i++) {
-        const row = json[i];
-        // Validate required fields
-        const missing = expectedFields.filter((f) => !(f in row));
-        if (missing.length) {
-          errors.push(`Row ${i + 2}: Missing fields: ${missing.join(', ')}`);
-          continue;
-        }
-        // Type conversions (booleans)
-        if ('active' in row) row.active = row.active === true || row.active === 'true' || row.active === 1 || row.active === '1';
-        validRecords.push(row as StoreTableMap[T]);
-      }
-      // Chunked insert (100 at a time)
-      for (let i = 0; i < validRecords.length; i += 100) {
-        await db[storeName].bulkPut(validRecords.slice(i, i + 100));
-      }
-      return { success: errors.length === 0, errors };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // Download Excel template for a store
-  static downloadTemplate<T extends StoreName>(storeName: T) {
-    const headers = STORE_FIELDS[storeName];
-    const ws = XLSX.utils.aoa_to_sheet([headers]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Template');
-    const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-    const blob = new Blob([wbout], { type: 'application/octet-stream' });
-    saveAs(blob, `${storeName}_template.xlsx`);
-  }
-
-  // Get unique anchor names from anchor_master
-  static async getUniqueAnchorNames() {
-    try {
-      // Simplify implementation to avoid TypeScript issues
-      const anchors = await db.anchor_master.toArray();
-      const anchorNames: string[] = [];
-      
-      anchors.forEach(anchor => {
-        if (anchor.anchorname && !anchorNames.includes(anchor.anchorname)) {
-          anchorNames.push(anchor.anchorname);
-        }
-      });
-      
-      return { success: true, data: anchorNames };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // Get unique program names from anchor_master
-  static async getUniqueProgramNames() {
-    try {
-      // Simplify implementation to avoid TypeScript issues
-      const programs = await db.anchor_master.toArray();
-      const programNames: string[] = [];
-      
-      programs.forEach(program => {
-        if (program.programname && !programNames.includes(program.programname)) {
-          programNames.push(program.programname);
-        }
-      });
-      
-      return { success: true, data: programNames };
-    } catch (error: any) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  // Custom lead template download
-  static downloadLeadTemplate() {
-    const headers = ["Sr. No.", "Program Type", "Anchor", "Dealer Name", "Dealer Phone", "Dealer Email", "Dealer Address", "Dealer City", "Dealer State", "Dealer Pincode", "Dealer PAN", "Dealer Vintage (in months)", "Dealer Annual Turnover (in lacs)", "Dealer Banking with", "Dealer Credit Score", "Dealer overdue with anchor (No. of times in last 12 months)"];
-    const ws = XLSX.utils.aoa_to_sheet([headers]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Template');
-    const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-    const blob = new Blob([wbout], { type: 'application/octet-stream' });
-    saveAs(blob, `lead_upload_template.xlsx`);
-  }
-}
-
-// --- Singleton Export ---
-export default db;
-</file>
 
 <file path=".idx/dev.nix">
 {pkgs}: {
@@ -7105,22 +6853,6 @@ function useToast() {
 export { useToast, toast }
 </file>
 
-<file path="components/client-side-auth-wrapper.tsx">
-"use client"
-
-import { ReactNode } from "react"
-import { AuthProvider } from "./auth-provider"
-import RouteGuard from "./route-guard"
-
-export default function ClientSideAuthWrapper({ children }: { children: ReactNode }) {
-  return (
-    <AuthProvider>
-      <RouteGuard>{children}</RouteGuard>
-    </AuthProvider>
-  )
-}
-</file>
-
 <file path="components/route-guard.tsx">
 "use client"
 
@@ -7422,6 +7154,526 @@ function useToast() {
 }
 
 export { useToast, toast }
+</file>
+
+<file path="lib/db.ts">
+// lib/db.ts
+// MasterService: IndexedDB (Dexie.js) for Master Data Management
+// Implements CRUD, Excel upload/download, and search for all master stores.
+// Dependencies: dexie, xlsx, file-saver
+
+import Dexie, { Table } from 'dexie';
+import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
+
+// --- TypeScript interfaces for master data stores ---
+export interface AnchorMaster {
+  id: string;
+  anchorname: string;
+  programname: string;
+  anchoruuid: string;
+  programuuid: string;
+  segment: string;
+  PSMName: string;
+  PSMADID: string;
+  PSMEmail: string;
+  UDF1: string;
+  UDF2: string;
+}
+
+export interface HierarchyMaster {
+  id: string;
+  employeeName: string;
+  empAdid: string;
+  fullName: string;
+  rblAdid: string;
+  rblName: string;
+  region: string;
+  zhAdid: string;
+  zhName: string;
+  yesEmail: string;
+  mobile: string;
+}
+
+export interface HolidayMaster {
+  id: string;
+  date: string;
+  Date: string; // For backward compatibility
+  name: string;
+  type: string;
+  HolidayType: string; // For backward compatibility
+  description: string;
+}
+
+export interface PincodeBranch {
+  id: string;
+  pincode: string;
+  branchCode: string;
+  branchName: string;
+  city: string;
+  state: string;
+  region: string;
+  active: boolean;
+}
+
+export interface RMBranch {
+  id: string;
+  rmId: string;
+  rmName: string;
+  branchCode: string;
+  branchName: string;
+  region: string;
+  role: string;
+  active: boolean;
+}
+
+type StoreName = 'anchor_master' | 'hierarchy_master' | 'holiday_master' | 'pincode_branch' | 'rm_branch';
+
+type StoreTableMap = {
+  anchor_master: AnchorMaster;
+  hierarchy_master: HierarchyMaster;
+  holiday_master: HolidayMaster;
+  pincode_branch: PincodeBranch;
+  rm_branch: RMBranch;
+};
+
+// --- Dexie Database Setup ---
+class SCFLeadManagementDB extends Dexie {
+  anchor_master!: Table<AnchorMaster, string>;
+  hierarchy_master!: Table<HierarchyMaster, string>;
+  holiday_master!: Table<HolidayMaster, string>;
+  pincode_branch!: Table<PincodeBranch, string>;
+  rm_branch!: Table<RMBranch, string>;
+
+  constructor() {
+    super('SCFLeadManagement');
+    this.version(1).stores({
+      anchor_master: 'id, anchorname, programname',
+      hierarchy_master: 'id, employeeName',
+      holiday_master: 'id, Date, HolidayType',
+      pincode_branch: 'id, pincode, branchCode, branchName, city, state',
+      rm_branch: 'id, rmId, rmName, branchCode, region',
+    });
+    
+    // Version 2: Updated schema with additional indexed fields
+    this.version(2).stores({
+      anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
+      hierarchy_master: 'id, employeeName, empAdid, fullName, rblAdid, rblName, region, zhAdid, zhName',
+      holiday_master: 'id, Date, HolidayType, date, name, type, description',
+      pincode_branch: 'id, pincode, branchCode, branchName, city, state, region, active',
+      rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
+    });
+  }
+}
+
+const db = new SCFLeadManagementDB();
+
+// --- Utility: Store fields for Excel templates/validation ---
+const STORE_FIELDS: Record<StoreName, string[]> = {
+  anchor_master: ['id', 'anchorname', 'programname', 'anchoruuid', 'programuuid', 'segment', 'PSMName', 'PSMADID', 'PSMEmail', 'UDF1', 'UDF2'],
+  hierarchy_master: ['id', 'employeeName', 'empAdid', 'fullName', 'rblAdid', 'rblName', 'region', 'zhAdid', 'zhName', 'yesEmail', 'mobile'],
+  holiday_master: ['id', 'Date', 'HolidayType', 'date', 'name', 'type', 'description'],
+  pincode_branch: ['id', 'pincode', 'branchCode', 'branchName', 'city', 'state', 'region', 'active'],
+  rm_branch: ['id', 'rmId', 'rmName', 'branchCode', 'branchName', 'region', 'role', 'active'],
+};
+
+// --- MasterService Class ---
+export class MasterService {
+  // Add a single record
+  static async createRecord<T extends StoreName>(storeName: T, record: StoreTableMap[T]) {
+    try {
+      await db[storeName].add(record);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Get records with optional filters and sorting
+  static async getRecords<T extends StoreName>(storeName: T, filters: Partial<StoreTableMap[T]> = {}, sortBy?: keyof StoreTableMap[T], limit = 20, offset = 0) {
+    try {
+      let collection = db[storeName].toCollection();
+      for (const key in filters) {
+        // @ts-ignore
+        collection = collection.filter((item) => item[key] === filters[key]);
+      }
+      let results = await collection.toArray();
+      if (sortBy) {
+        results = results.sort((a: any, b: any) => (a[sortBy] > b[sortBy] ? 1 : -1));
+      }
+      return { success: true, data: results.slice(offset, offset + limit) };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Update a record by id
+  static async updateRecord<T extends StoreName>(storeName: T, id: string, updates: Partial<StoreTableMap[T]>) {
+    try {
+      await db[storeName].update(id, updates);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Delete a record by id
+  static async deleteRecord<T extends StoreName>(storeName: T, id: string) {
+    try {
+      await db[storeName].delete(id);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Search records by indexed field
+  static async searchRecords<T extends StoreName>(storeName: T, field: keyof StoreTableMap[T], value: any, limit = 20, offset = 0) {
+    try {
+      // @ts-ignore
+      let collection = db[storeName].where(field).equals(value);
+      const results = await collection.offset(offset).limit(limit).toArray();
+      return { success: true, data: results };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Upload Excel: Parse, validate, and store records
+  static async uploadExcel<T extends StoreName>(storeName: T, file: File) {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const json: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+      const expectedFields = STORE_FIELDS[storeName];
+      const validRecords: StoreTableMap[T][] = [];
+      const errors: string[] = [];
+      
+      for (let i = 0; i < json.length; i++) {
+        const row = json[i];
+        // Validate required fields
+        const missing = expectedFields.filter((f) => !(f in row));
+        if (missing.length) {
+          errors.push(`Row ${i + 2}: Missing fields: ${missing.join(', ')}`);
+          continue;
+        }
+        
+        // Type conversions and field mappings
+        if ('active' in row) {
+          row.active = row.active === true || row.active === 'true' || row.active === 1 || row.active === '1';
+        }
+        
+        // Handle field mappings for backward compatibility
+        if (storeName === 'holiday_master') {
+          // If new fields are present but old fields aren't, copy values
+          if (row.date && !row.Date) row.Date = row.date;
+          if (row.type && !row.HolidayType) row.HolidayType = row.type;
+        }
+        
+        validRecords.push(row as StoreTableMap[T]);
+      }
+      
+      // Chunked insert (100 at a time)
+      for (let i = 0; i < validRecords.length; i += 100) {
+        await db[storeName].bulkPut(validRecords.slice(i, i + 100));
+      }
+      
+      return { success: errors.length === 0, errors };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Download Excel template for a store
+  static downloadTemplate<T extends StoreName>(storeName: T) {
+    const headers = STORE_FIELDS[storeName];
+    const ws = XLSX.utils.aoa_to_sheet([headers]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    const blob = new Blob([wbout], { type: 'application/octet-stream' });
+    saveAs(blob, `${storeName}_template.xlsx`);
+  }
+
+  // Get unique anchor names from anchor_master
+  static async getUniqueAnchorNames() {
+    try {
+      // Simplify implementation to avoid TypeScript issues
+      const anchors = await db.anchor_master.toArray();
+      const anchorNames: string[] = [];
+      
+      anchors.forEach(anchor => {
+        if (anchor.anchorname && !anchorNames.includes(anchor.anchorname)) {
+          anchorNames.push(anchor.anchorname);
+        }
+      });
+      
+      return { success: true, data: anchorNames };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Get unique program names from anchor_master
+  static async getUniqueProgramNames() {
+    try {
+      // Simplify implementation to avoid TypeScript issues
+      const programs = await db.anchor_master.toArray();
+      const programNames: string[] = [];
+      
+      programs.forEach(program => {
+        if (program.programname && !programNames.includes(program.programname)) {
+          programNames.push(program.programname);
+        }
+      });
+      
+      return { success: true, data: programNames };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Custom lead template download
+  static downloadLeadTemplate() {
+    const headers = [
+      "Sr. No.",
+      "Program Type",
+      "Type of relationship",
+      "Name of the Firm",
+      "PAN Number",
+      "Contact Person",
+      "Mobile No.",
+      "Email Address",
+      "Address",
+      "Pincode",
+      "City",
+      "RM ADID",
+      "No. of months of relationship with Dealer",
+      "Tenor (in days)",
+      "Sales to Dealer (Actual)(in INR) 2020-21",
+      "Sales to Dealer (Actual)(in INR) 2021-22",
+      "Sales to Dealer (Actual)(in INR) 2022-23",
+      "Projected Sales to Dealer (Projected)(in INR) 2023-24",
+      "Dealer Turnover(in INR) 2022-23",
+      "Limit Recommended (in INR)",
+      "Dealer Payment Track Record",
+      "Dealer overdue with anchor (No. of times in last 12 months)"
+    ];
+    const ws = XLSX.utils.aoa_to_sheet([headers]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Template');
+    const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+    const blob = new Blob([wbout], { type: 'application/octet-stream' });
+    saveAs(blob, `lead_upload_template.xlsx`);
+  }
+}
+
+// --- Singleton Export ---
+export default db;
+</file>
+
+<file path="lib/dbUtils.ts">
+// lib/dbUtils.ts
+// Helper utilities for working with the database
+
+import db, { AnchorMaster, HierarchyMaster, HolidayMaster, PincodeBranch, RMBranch, MasterService } from './db';
+
+/**
+ * Mapping functions to handle field compatibility between UI components and DB fields
+ */
+
+// Map Anchor Master from UI to DB
+export function mapAnchorUIToDB(uiData: any): AnchorMaster {
+  return {
+    id: uiData.anchoruuid || uiData.id || Date.now().toString(), // Fallback to ensure ID exists
+    anchorname: uiData.anchorname || '',
+    programname: uiData.programname || '',
+    anchoruuid: uiData.anchoruuid || uiData.id || '',
+    programuuid: uiData.programuuid || '',
+    segment: uiData.segment || '',
+    PSMName: uiData.PSMName || '',
+    PSMADID: uiData.PSMADID || '',
+    PSMEmail: uiData.PSMEmail || '',
+    UDF1: uiData.UDF1 || '',
+    UDF2: uiData.UDF2 || ''
+  };
+}
+
+// Map Hierarchy Master from UI to DB
+export function mapHierarchyUIToDB(uiData: any): HierarchyMaster {
+  return {
+    id: uiData.empAdid || uiData.id || Date.now().toString(), // Fallback to ensure ID exists
+    employeeName: uiData.fullName || uiData.employeeName || '',
+    empAdid: uiData.empAdid || '',
+    fullName: uiData.fullName || uiData.employeeName || '',
+    rblAdid: uiData.rblAdid || '',
+    rblName: uiData.rblName || '',
+    region: uiData.region || '',
+    zhAdid: uiData.zhAdid || '',
+    zhName: uiData.zhName || '',
+    yesEmail: uiData.yesEmail || '',
+    mobile: uiData.mobile || ''
+  };
+}
+
+// Map Holiday Master from UI to DB
+export function mapHolidayUIToDB(uiData: any): HolidayMaster {
+  return {
+    id: uiData.id || Date.now().toString(), // Fallback to ensure ID exists
+    date: uiData.date || '',
+    Date: uiData.Date || uiData.date || '', // For backward compatibility
+    name: uiData.name || '',
+    type: uiData.type || '',
+    HolidayType: uiData.HolidayType || uiData.type || '', // For backward compatibility
+    description: uiData.description || ''
+  };
+}
+
+/**
+ * Initialize the database with sample data if it's empty
+ */
+export async function initializeDBIfEmpty() {
+  try {
+    // Check if anchor_master is empty
+    const anchorsCount = await db.anchor_master.count();
+    if (anchorsCount === 0) {
+      // Sample Anchor Master data
+      const sampleAnchors: AnchorMaster[] = [
+        {
+          id: "anc-001",
+          anchorname: "ABC Corp",
+          programname: "Supply Chain Finance",
+          anchoruuid: "anc-001",
+          programuuid: "prog-001",
+          segment: "Large Corporate",
+          PSMName: "John Doe",
+          PSMADID: "ADID001",
+          PSMEmail: "john.doe@example.com",
+          UDF1: "Custom1",
+          UDF2: "Custom2"
+        },
+        {
+          id: "anc-002",
+          anchorname: "XYZ Industries",
+          programname: "Dealer Finance",
+          anchoruuid: "anc-002",
+          programuuid: "prog-002",
+          segment: "Mid-size",
+          PSMName: "Jane Smith",
+          PSMADID: "ADID002",
+          PSMEmail: "jane.smith@example.com",
+          UDF1: "Custom3",
+          UDF2: "Custom4"
+        }
+      ];
+      
+      // Insert sample anchors
+      await db.anchor_master.bulkAdd(sampleAnchors);
+      console.log("Initialized sample anchor data");
+    }
+    
+    // Check if hierarchy_master is empty
+    const hierarchyCount = await db.hierarchy_master.count();
+    if (hierarchyCount === 0) {
+      // Sample Hierarchy Master data
+      const sampleHierarchy: HierarchyMaster[] = [
+        {
+          id: "EMP001",
+          employeeName: "Vikram Mehta",
+          empAdid: "EMP001",
+          fullName: "Vikram Mehta",
+          rblAdid: "RBL001",
+          rblName: "RBL Name 1",
+          region: "North",
+          zhAdid: "ZH001",
+          zhName: "ZH Name 1",
+          yesEmail: "vikram.mehta@example.com",
+          mobile: "9876543210"
+        },
+        {
+          id: "EMP002",
+          employeeName: "Neha Gupta",
+          empAdid: "EMP002",
+          fullName: "Neha Gupta",
+          rblAdid: "RBL002",
+          rblName: "RBL Name 2",
+          region: "West",
+          zhAdid: "ZH002",
+          zhName: "ZH Name 2",
+          yesEmail: "neha.gupta@example.com",
+          mobile: "9123456780"
+        }
+      ];
+      
+      // Insert sample hierarchy
+      await db.hierarchy_master.bulkAdd(sampleHierarchy);
+      console.log("Initialized sample hierarchy data");
+    }
+    
+    // Check if holiday_master is empty
+    const holidaysCount = await db.holiday_master.count();
+    if (holidaysCount === 0) {
+      // Sample Holiday Master data
+      const sampleHolidays: HolidayMaster[] = [
+        {
+          id: "hol-001",
+          date: "2025-01-01",
+          Date: "2025-01-01",
+          name: "New Year's Day",
+          type: "National",
+          HolidayType: "National",
+          description: "New Year's Day celebration"
+        },
+        {
+          id: "hol-002",
+          date: "2025-01-26",
+          Date: "2025-01-26",
+          name: "Republic Day",
+          type: "National",
+          HolidayType: "National",
+          description: "National Republic Day"
+        }
+      ];
+      
+      // Insert sample holidays
+      await db.holiday_master.bulkAdd(sampleHolidays);
+      console.log("Initialized sample holiday data");
+    }
+    
+    return { success: true };
+  } catch (error: any) {
+    console.error("Error initializing DB:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Count total records in each master store
+ */
+export async function getMasterDataCounts() {
+  try {
+    const counts = {
+      anchor_master: await db.anchor_master.count(),
+      hierarchy_master: await db.hierarchy_master.count(),
+      holiday_master: await db.holiday_master.count(),
+      pincode_branch: await db.pincode_branch.count(),
+      rm_branch: await db.rm_branch.count()
+    };
+    return { success: true, data: counts };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+}
+
+export default {
+  initializeDBIfEmpty,
+  getMasterDataCounts,
+  mapAnchorUIToDB,
+  mapHierarchyUIToDB,
+  mapHolidayUIToDB
+};
 </file>
 
 <file path="lib/downloadTemplate.ts">
@@ -8422,46 +8674,6 @@ export default function EscalationRules() {
 }
 </file>
 
-<file path="app/layout.tsx">
-import { Inter } from "next/font/google"
-import "./globals.css"
-import { ThemeProvider } from "@/components/theme-provider"
-import { AuthProvider } from "@/components/auth-provider"
-import ClientSideAuthWrapper from "@/components/client-side-auth-wrapper"
-
-const inter = Inter({ subsets: ["latin"] })
-
-export const metadata = {
-  title: "SCF Lead Management",
-  description: "Lead Management System for Supply Chain Finance",
-  generator: 'v0.dev'
-}
-
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
-  return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <AuthProvider>
-            <ClientSideAuthWrapper>
-              {children}
-            </ClientSideAuthWrapper>
-          </AuthProvider>
-        </ThemeProvider>
-      </body>
-    </html>
-  )
-}
-
-
-
-import './globals.css'
-</file>
-
 <file path="app/page.tsx">
 "use client"
 
@@ -8476,500 +8688,6 @@ export default function Home() {
   }, [router])
 
   return null
-}
-</file>
-
-<file path="components/SCFleadmanagement/masters/hierarchy-master.tsx">
-"use client"
-
-import { useState } from "react"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { Search, Download, Filter } from "lucide-react"
-import MasterLayout from "./master-layout"
-import { downloadTemplate } from "@/lib/downloadTemplate"
-
-interface Hierarchy {
-  empAdid: string
-  fullName: string
-  rblAdid: string
-  rblName: string
-  region: string
-  zhAdid: string
-  zhName: string
-  yesEmail: string
-  mobile: string
-}
-
-const HIERARCHY_DATA: Hierarchy[] = [
-  {
-    empAdid: "EMP001",
-    fullName: "Vikram Mehta",
-    rblAdid: "RBL001",
-    rblName: "RBL Name 1",
-    region: "North",
-    zhAdid: "ZH001",
-    zhName: "ZH Name 1",
-    yesEmail: "vikram.mehta@yesbank.in",
-    mobile: "9876543210",
-  },
-  {
-    empAdid: "EMP002",
-    fullName: "Neha Gupta",
-    rblAdid: "RBL002",
-    rblName: "RBL Name 2",
-    region: "West",
-    zhAdid: "ZH002",
-    zhName: "ZH Name 2",
-    yesEmail: "neha.gupta@yesbank.in",
-    mobile: "9123456780",
-  },
-  {
-    empAdid: "EMP003",
-    fullName: "Rahul Sharma",
-    rblAdid: "RBL003",
-    rblName: "RBL Name 3",
-    region: "South",
-    zhAdid: "ZH003",
-    zhName: "ZH Name 3",
-    yesEmail: "rahul.sharma@yesbank.in",
-    mobile: "9999999999",
-  },
-  {
-    empAdid: "EMP004",
-    fullName: "Priya Patel",
-    rblAdid: "RBL004",
-    rblName: "RBL Name 4",
-    region: "East",
-    zhAdid: "ZH004",
-    zhName: "ZH Name 4",
-    yesEmail: "priya.patel@yesbank.in",
-    mobile: "8888888888",
-  },
-  {
-    empAdid: "EMP005",
-    fullName: "Anil Kumar",
-    rblAdid: "RBL005",
-    rblName: "RBL Name 5",
-    region: "North",
-    zhAdid: "ZH005",
-    zhName: "ZH Name 5",
-    yesEmail: "anil.kumar@yesbank.in",
-    mobile: "7777777777",
-  },
-]
-
-export default function HierarchyMaster() {
-  const [searchTerm, setSearchTerm] = useState("")
-
-  const filteredData = HIERARCHY_DATA.filter(
-    (item) =>
-      item.empAdid.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.rblAdid.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.rblName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.region.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.zhAdid.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.zhName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.yesEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.mobile.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
-
-  return (
-    <MasterLayout
-      title="Hierarchy Master"
-      description="Manage the organizational hierarchy structure"
-      lastUpdated={{
-        date: "Mar 30, 2025, 11:15 AM",
-        user: "Michael Brown",
-      }}
-    >
-      <div className="flex justify-end mb-4">
-        <Button
-          variant="outline"
-          onClick={() => downloadTemplate([
-            "Emp ADID",
-            "Full Name",
-            "RBL ADID",
-            "RBL Name",
-            "Region",
-            "ZH ADID",
-            "ZH Name",
-            "Yes Email",
-            "Mobile"
-          ], "hierarchy_template.xlsx")}
-        >
-          Download Template
-        </Button>
-      </div>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
-        <div className="relative w-full sm:w-64">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
-          <Input
-            type="search"
-            placeholder="Search by employee, designation..."
-            className="pl-9 w-full"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="gap-1">
-            <Filter className="h-4 w-4" />
-            Filter
-          </Button>
-
-          <Button variant="outline" size="sm" className="gap-1">
-            <Download className="h-4 w-4" />
-            Export
-          </Button>
-        </div>
-      </div>
-
-      <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 dark:border-[#1F1F23] bg-gray-50 dark:bg-[#1F1F23]">
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Emp ADID</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Full Name</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL ADID</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL Name</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Region</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">ZH ADID</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">ZH Name</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Yes Email</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Mobile</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredData.map((item, idx) => (
-                <tr
-                  key={item.empAdid + idx}
-                  className="border-b border-gray-200 dark:border-[#1F1F23] hover:bg-gray-50 dark:hover:bg-[#1F1F23]/50"
-                >
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.empAdid}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.fullName}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.rblAdid}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.rblName}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.region}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.zhAdid}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.zhName}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.yesEmail}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.mobile}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-[#1F1F23]">
-          <div className="text-sm text-gray-700 dark:text-gray-300">
-            Showing <span className="font-medium">{filteredData.length}</span> of{" "}
-            <span className="font-medium">{HIERARCHY_DATA.length}</span> records
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled>
-              Previous
-            </Button>
-            <Button variant="outline" size="sm" disabled>
-              Next
-            </Button>
-          </div>
-        </div>
-      </div>
-    </MasterLayout>
-  )
-}
-</file>
-
-<file path="components/SCFleadmanagement/masters/holiday-master.tsx">
-"use client"
-
-import MasterLayout from "./master-layout"
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { downloadTemplate } from "@/lib/downloadTemplate"
-
-interface Holiday {
-  id: string
-  date: string
-  name: string
-  type: string
-  description: string
-}
-
-export default function HolidayMaster() {
-  const [holidays, setHolidays] = useState<Holiday[]>([])
-  const [newHoliday, setNewHoliday] = useState<Holiday>({
-    id: "",
-    date: "",
-    name: "",
-    type: "",
-    description: "",
-  })
-
-  const handleAdd = () => {
-    setHolidays([
-      ...holidays,
-      { ...newHoliday, id: Date.now().toString() },
-    ])
-    setNewHoliday({ id: "", date: "", name: "", type: "", description: "" })
-  }
-
-  return (
-    <MasterLayout title="Holiday Master" description="Manage holidays for your organization">
-      <div className="flex justify-end mb-4">
-        <Button
-          variant="outline"
-          onClick={() => downloadTemplate(["Date", "Name", "Type", "Description"], "holiday_template.xlsx")}
-        >
-          Download Template
-        </Button>
-      </div>
-      {/* Removed manual add fields as per user request */}
-      <table className="w-full border text-sm">
-        <thead>
-          <tr className="bg-muted">
-            <th className="p-2 border">Date</th>
-            <th className="p-2 border">Name</th>
-            <th className="p-2 border">Type</th>
-            <th className="p-2 border">Description</th>
-          </tr>
-        </thead>
-        <tbody>
-          {holidays.map((h) => (
-            <tr key={h.id}>
-              <td className="p-2 border">{h.date}</td>
-              <td className="p-2 border">{h.name}</td>
-              <td className="p-2 border">{h.type}</td>
-              <td className="p-2 border">{h.description}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </MasterLayout>
-  )
-}
-</file>
-
-<file path="components/SCFleadmanagement/masters/master-layout.tsx">
-"use client"
-
-import type React from "react"
-
-import { useState } from "react"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Database, Upload, FileSpreadsheet, AlertCircle, CheckCircle } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-
-interface MasterLayoutProps {
-  title: string
-  description: string
-  children: React.ReactNode
-  lastUpdated?: {
-    date: string
-    user: string
-  }
-}
-
-export default function MasterLayout({ title, description, children, lastUpdated }: MasterLayoutProps) {
-  const [activeTab, setActiveTab] = useState("view")
-  const [file, setFile] = useState<File | null>(null)
-  const [validationStatus, setValidationStatus] = useState<"idle" | "validating" | "success" | "error">("idle")
-  const [validationMessage, setValidationMessage] = useState("")
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0]
-    if (selectedFile) {
-      setFile(selectedFile)
-      setValidationStatus("idle")
-      setValidationMessage("")
-    }
-  }
-
-  const handleValidate = () => {
-    if (!file) return
-
-    setValidationStatus("validating")
-
-    // Simulate validation process
-    setTimeout(() => {
-      // For demo purposes, we'll randomly succeed or fail
-      const isValid = Math.random() > 0.3
-
-      if (isValid) {
-        setValidationStatus("success")
-        setValidationMessage("File validation successful. Ready to upload.")
-      } else {
-        setValidationStatus("error")
-        setValidationMessage("Validation failed. Please check the file format and data.")
-      }
-    }, 1500)
-  }
-
-  const handleUpload = () => {
-    if (!file || validationStatus !== "success") return
-
-    // Here you would handle the actual upload
-    alert(`Uploading file: ${file.name}`)
-
-    // Reset state after upload
-    setFile(null)
-    setValidationStatus("idle")
-    setValidationMessage("")
-    setActiveTab("view") // Automatically go back to View Master Data
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
-        </div>
-
-        {lastUpdated && (
-          <div className="text-sm text-gray-500 dark:text-gray-400">
-            Last updated on <span className="font-medium">{lastUpdated.date}</span> by{" "}
-            <span className="font-medium">{lastUpdated.user}</span>
-          </div>
-        )}
-      </div>
-
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid grid-cols-2 mb-4">
-          <TabsTrigger value="view" className="flex items-center gap-2">
-            <Database className="h-4 w-4" />
-            View Master Data
-          </TabsTrigger>
-          <TabsTrigger value="upload" className="flex items-center gap-2">
-            <Upload className="h-4 w-4" />
-            Upload New Data
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="view" className="space-y-4">
-          {children}
-        </TabsContent>
-
-        <TabsContent value="upload" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Upload Excel File</CardTitle>
-              <CardDescription>
-                Upload an Excel file to update the master data. The file will be validated before updating.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center">
-                {!file ? (
-                  <>
-                    <FileSpreadsheet className="mx-auto h-12 w-12 text-gray-400" />
-                    <div className="mt-4">
-                      <p className="text-sm font-medium text-gray-900 dark:text-white">
-                        Drag and drop your Excel file here
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">or click to browse files</p>
-                    </div>
-                    <input
-                      type="file"
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      accept=".xlsx,.xls"
-                      onChange={handleFileChange}
-                    />
-                  </>
-                ) : (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center">
-                      <FileSpreadsheet className="h-10 w-10 text-green-500" />
-                      <div className="ml-4 text-left">
-                        <p className="text-sm font-medium text-gray-900 dark:text-white">{file.name}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{(file.size / 1024).toFixed(2)} KB</p>
-                      </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setFile(null)
-                        setValidationStatus("idle")
-                        setValidationMessage("")
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                )}
-              </div>
-
-              {file && validationStatus !== "idle" && (
-                <Alert variant={validationStatus === "error" ? "destructive" : "default"}>
-                  {validationStatus === "validating" && (
-                    <>
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>Validating</AlertTitle>
-                      <AlertDescription>Please wait while we validate your file...</AlertDescription>
-                    </>
-                  )}
-
-                  {validationStatus === "success" && (
-                    <>
-                      <CheckCircle className="h-4 w-4" />
-                      <AlertTitle>Validation Successful</AlertTitle>
-                      <AlertDescription>{validationMessage}</AlertDescription>
-                    </>
-                  )}
-
-                  {validationStatus === "error" && (
-                    <>
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertTitle>Validation Failed</AlertTitle>
-                      <AlertDescription>{validationMessage}</AlertDescription>
-                    </>
-                  )}
-                </Alert>
-              )}
-            </CardContent>
-            <CardFooter className="flex justify-between">
-              <Button variant="outline" onClick={() => setActiveTab("view")}>
-                Cancel
-              </Button>
-              <div className="space-x-2">
-                {file && validationStatus === "idle" && <Button onClick={handleValidate}>Validate File</Button>}
-
-                {file && validationStatus === "success" && <Button onClick={handleUpload}>Upload File</Button>}
-
-                {file && validationStatus === "error" && (
-                  <Button onClick={() => setFile(null)}>Select Another File</Button>
-                )}
-              </div>
-            </CardFooter>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Upload Guidelines</CardTitle>
-              <CardDescription>Please follow these guidelines to ensure successful data upload</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ul className="list-disc pl-5 space-y-2 text-sm">
-                <li>Use the provided Excel template for uploading data</li>
-                <li>Ensure all required fields are filled</li>
-                <li>Data will be validated against existing records</li>
-                <li>Maximum file size: 5MB</li>
-                <li>Supported formats: .xlsx, .xls</li>
-              </ul>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-    </div>
-  )
 }
 </file>
 
@@ -10526,6 +10244,631 @@ export default function RMLeads() {
 }
 </file>
 
+<file path="components/client-side-auth-wrapper.tsx">
+"use client"
+
+import { ReactNode, useEffect } from "react"
+import { AuthProvider } from "./auth-provider"
+import RouteGuard from "./route-guard"
+import dbUtils from "@/lib/dbUtils"
+
+export default function ClientSideAuthWrapper({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    // Initialize the database when the app starts
+    const initDB = async () => {
+      try {
+        await dbUtils.initializeDBIfEmpty();
+        console.log("Database initialization complete");
+      } catch (error) {
+        console.error("Error initializing database:", error);
+      }
+    };
+    
+    initDB();
+  }, []);
+
+  return (
+    <AuthProvider>
+      <RouteGuard>{children}</RouteGuard>
+    </AuthProvider>
+  )
+}
+</file>
+
+<file path="app/layout.tsx">
+import { Inter } from "next/font/google"
+import "./globals.css"
+import { ThemeProvider } from "@/components/theme-provider"
+import { AuthProvider } from "@/components/auth-provider"
+import ClientSideAuthWrapper from "@/components/client-side-auth-wrapper"
+
+const inter = Inter({ subsets: ["latin"] })
+
+export const metadata = {
+  title: "SCF Lead Management",
+  description: "Lead Management System for Supply Chain Finance",
+  generator: 'v0.dev'
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body className={inter.className}>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <AuthProvider>
+            <ClientSideAuthWrapper>
+              {children}
+            </ClientSideAuthWrapper>
+          </AuthProvider>
+        </ThemeProvider>
+      </body>
+    </html>
+  )
+}
+</file>
+
+<file path="components/SCFleadmanagement/masters/hierarchy-master.tsx">
+"use client"
+
+import { useState, useEffect } from "react"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { Search, Filter } from "lucide-react"
+import MasterLayout from "./master-layout"
+import { MasterService } from "@/lib/db"
+import type { HierarchyMaster } from "@/lib/db"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+
+export default function HierarchyMaster() {
+  const [searchTerm, setSearchTerm] = useState("")
+  const [hierarchyData, setHierarchyData] = useState<HierarchyMaster[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    // Load hierarchy data from IndexedDB
+    const loadHierarchy = async () => {
+      try {
+        setLoading(true);
+        const result = await MasterService.getRecords('hierarchy_master');
+        
+        if (result.success && result.data) {
+          // Type assertion to ensure correct type
+          setHierarchyData(result.data as HierarchyMaster[]);
+        } else {
+          setError("Failed to load hierarchy data");
+        }
+      } catch (err) {
+        console.error("Error loading hierarchy:", err);
+        setError("An unexpected error occurred");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadHierarchy();
+  }, []);
+
+  const filteredData = hierarchyData.filter(
+    (item) =>
+      item.empAdid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.rblAdid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.rblName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.region?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.zhAdid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.zhName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.yesEmail?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.mobile?.toLowerCase().includes(searchTerm.toLowerCase()),
+  )
+
+  return (
+    <MasterLayout
+      title="Hierarchy Master"
+      description="Manage the organizational hierarchy structure"
+      lastUpdated={{
+        date: "Mar 30, 2025, 11:15 AM",
+        user: "Michael Brown",
+      }}
+      storeName="hierarchy_master"
+    >
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+        <div className="relative w-full sm:w-64">
+          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
+          <Input
+            type="search"
+            placeholder="Search by employee, designation..."
+            className="pl-9 w-full"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="gap-1">
+            <Filter className="h-4 w-4" />
+            Filter
+          </Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <div className="text-center">
+            <div className="inline-block animate-spin h-8 w-8 border-4 border-gray-300 dark:border-gray-700 rounded-full border-t-blue-600 dark:border-t-blue-500"></div>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading hierarchy data...</p>
+          </div>
+        </div>
+      ) : error ? (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 rounded-md p-4 my-4">
+          <p className="text-red-800 dark:text-red-300">{error}</p>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="mt-2"
+            onClick={() => window.location.reload()}
+          >
+            Reload
+          </Button>
+        </div>
+      ) : (
+        <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-b border-gray-200 dark:border-[#1F1F23] bg-gray-50 dark:bg-[#1F1F23]">
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Emp ADID</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Full Name</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL ADID</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL Name</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Region</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">ZH ADID</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">ZH Name</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Yes Email</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Mobile</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredData.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-6 text-gray-500 dark:text-gray-400">
+                      {hierarchyData.length === 0 
+                        ? "No hierarchy data available. Use the Upload tab to add data." 
+                        : "No results found for your search."}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredData.map((item, idx) => (
+                    <TableRow
+                      key={item.id || idx}
+                      className="border-b border-gray-200 dark:border-[#1F1F23] hover:bg-gray-50 dark:hover:bg-[#1F1F23]/50"
+                    >
+                      <TableCell className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.empAdid}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.fullName}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.rblAdid}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.rblName}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.region}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.zhAdid}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.zhName}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.yesEmail}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.mobile}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-[#1F1F23]">
+            <div className="text-sm text-gray-700 dark:text-gray-300">
+              Showing <span className="font-medium">{filteredData.length}</span> of{" "}
+              <span className="font-medium">{hierarchyData.length}</span> records
+            </div>
+          </div>
+        </div>
+      )}
+    </MasterLayout>
+  )
+}
+</file>
+
+<file path="components/SCFleadmanagement/masters/holiday-master.tsx">
+"use client"
+
+import { useState, useEffect } from "react"
+import MasterLayout from "./master-layout"
+import { Button } from "@/components/ui/button"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { MasterService } from "@/lib/db"
+import type { HolidayMaster } from "@/lib/db"
+
+export default function HolidayMasterComponent() {
+  const [holidays, setHolidays] = useState<HolidayMaster[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    // Load holiday data from IndexedDB
+    const loadHolidays = async () => {
+      try {
+        setLoading(true);
+        const result = await MasterService.getRecords('holiday_master');
+        
+        if (result.success && result.data) {
+          // Type assertion to ensure correct type
+          setHolidays(result.data as HolidayMaster[]);
+        } else {
+          setError("Failed to load holiday data");
+        }
+      } catch (err) {
+        console.error("Error loading holidays:", err);
+        setError("An unexpected error occurred");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadHolidays();
+  }, []);
+
+  return (
+    <MasterLayout 
+      title="Holiday Master" 
+      description="Manage holidays for your organization"
+      storeName="holiday_master"
+    >
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <div className="text-center">
+            <div className="inline-block animate-spin h-8 w-8 border-4 border-gray-300 dark:border-gray-700 rounded-full border-t-blue-600 dark:border-t-blue-500"></div>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading holidays...</p>
+          </div>
+        </div>
+      ) : error ? (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 rounded-md p-4 my-4">
+          <p className="text-red-800 dark:text-red-300">{error}</p>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="mt-2"
+            onClick={() => window.location.reload()}
+          >
+            Reload
+          </Button>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted">
+                <TableHead>Date</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Description</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {holidays.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="text-center py-6 text-gray-500 dark:text-gray-400">
+                    No holiday data available. Use the Upload tab to add data.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                holidays.map((holiday, idx) => (
+                  <TableRow key={holiday.id || idx}>
+                    <TableCell>{holiday.date || holiday.Date}</TableCell>
+                    <TableCell>{holiday.name}</TableCell>
+                    <TableCell>{holiday.type || holiday.HolidayType}</TableCell>
+                    <TableCell>{holiday.description}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </MasterLayout>
+  )
+}
+</file>
+
+<file path="components/SCFleadmanagement/masters/master-layout.tsx">
+"use client"
+
+import type React from "react"
+
+import { useState, useEffect } from "react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Database, Upload, FileSpreadsheet, AlertCircle, CheckCircle } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { MasterService } from "@/lib/db"
+import dbUtils from "@/lib/dbUtils"
+
+interface MasterLayoutProps {
+  title: string
+  description: string
+  children: React.ReactNode
+  lastUpdated?: {
+    date: string
+    user: string
+  }
+  storeName?: "anchor_master" | "hierarchy_master" | "holiday_master" | "pincode_branch" | "rm_branch"
+}
+
+export default function MasterLayout({ 
+  title, 
+  description, 
+  children, 
+  lastUpdated,
+  storeName 
+}: MasterLayoutProps) {
+  const [activeTab, setActiveTab] = useState("view")
+  const [file, setFile] = useState<File | null>(null)
+  const [validationStatus, setValidationStatus] = useState<"idle" | "validating" | "success" | "error">("idle")
+  const [validationMessage, setValidationMessage] = useState("")
+  const [recordsCount, setRecordsCount] = useState<number | null>(null)
+  
+  // Initialize database and get record counts
+  useEffect(() => {
+    const initDB = async () => {
+      // Initialize DB with sample data if empty
+      await dbUtils.initializeDBIfEmpty();
+      
+      // Get record counts for this store
+      if (storeName) {
+        const countResult = await dbUtils.getMasterDataCounts();
+        if (countResult.success && countResult.data) {
+          setRecordsCount(countResult.data[storeName]);
+        }
+      }
+    };
+    
+    initDB();
+  }, [storeName]);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0]
+    if (selectedFile) {
+      setFile(selectedFile)
+      setValidationStatus("idle")
+      setValidationMessage("")
+    }
+  }
+
+  const handleValidate = () => {
+    if (!file) return
+
+    setValidationStatus("validating")
+
+    // Simulate validation process
+    setTimeout(() => {
+      // For demo purposes, we'll randomly succeed or fail
+      const isValid = Math.random() > 0.3
+
+      if (isValid) {
+        setValidationStatus("success")
+        setValidationMessage("File validation successful. Ready to upload.")
+      } else {
+        setValidationStatus("error")
+        setValidationMessage("Validation failed. Please check the file format and data.")
+      }
+    }, 1500)
+  }
+
+  const handleUpload = async () => {
+    if (!file || validationStatus !== "success" || !storeName) return
+
+    // Here we actually upload the file using MasterService
+    try {
+      setValidationMessage("Uploading, please wait...");
+      
+      const result = await MasterService.uploadExcel(storeName, file);
+      
+      if (result.success) {
+        alert(`File '${file.name}' was successfully uploaded and processed.`);
+        
+        // Update the record count
+        const countResult = await dbUtils.getMasterDataCounts();
+        if (countResult.success && countResult.data) {
+          setRecordsCount(countResult.data[storeName]);
+        }
+      } else {
+        alert(`Upload encountered some issues: ${result.errors?.join(", ")}`);
+      }
+      
+      // Reset state after upload
+      setFile(null);
+      setValidationStatus("idle");
+      setValidationMessage("");
+      setActiveTab("view"); // Automatically go back to View Master Data
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("An error occurred during the upload process.");
+    }
+  }
+
+  const handleDownloadTemplate = () => {
+    if (!storeName) return;
+    
+    // Use the MasterService to download the template
+    MasterService.downloadTemplate(storeName);
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
+          {recordsCount !== null && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Total records: <span className="font-medium">{recordsCount}</span>
+            </p>
+          )}
+        </div>
+
+        {lastUpdated && (
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            Last updated on <span className="font-medium">{lastUpdated.date}</span> by{" "}
+            <span className="font-medium">{lastUpdated.user}</span>
+          </div>
+        )}
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid grid-cols-2 mb-4">
+          <TabsTrigger value="view" className="flex items-center gap-2">
+            <Database className="h-4 w-4" />
+            View Master Data
+          </TabsTrigger>
+          <TabsTrigger value="upload" className="flex items-center gap-2">
+            <Upload className="h-4 w-4" />
+            Upload New Data
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="view" className="space-y-4">
+          {children}
+        </TabsContent>
+
+        <TabsContent value="upload" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Upload Excel File</CardTitle>
+              <CardDescription>
+                Upload an Excel file to update the master data. The file will be validated before updating.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {storeName && (
+                <div className="mb-4">
+                  <Button
+                    variant="outline"
+                    onClick={handleDownloadTemplate}
+                    className="text-sm"
+                  >
+                    Download Template
+                  </Button>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Download and use this template to ensure your data is formatted correctly.
+                  </p>
+                </div>
+              )}
+              
+              <div className="border-2 border-dashed border-gray-300 dark:border-gray-700 rounded-lg p-6 text-center relative">
+                {!file ? (
+                  <>
+                    <FileSpreadsheet className="mx-auto h-12 w-12 text-gray-400" />
+                    <div className="mt-4">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">
+                        Drag and drop your Excel file here
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">or click to browse files</p>
+                    </div>
+                    <input
+                      type="file"
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                      accept=".xlsx,.xls"
+                      onChange={handleFileChange}
+                    />
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <FileSpreadsheet className="h-10 w-10 text-green-500" />
+                      <div className="ml-4 text-left">
+                        <p className="text-sm font-medium text-gray-900 dark:text-white">{file.name}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{(file.size / 1024).toFixed(2)} KB</p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setFile(null)
+                        setValidationStatus("idle")
+                        setValidationMessage("")
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {file && validationStatus !== "idle" && (
+                <Alert variant={validationStatus === "error" ? "destructive" : "default"}>
+                  {validationStatus === "validating" && (
+                    <>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Validating</AlertTitle>
+                      <AlertDescription>Please wait while we validate your file...</AlertDescription>
+                    </>
+                  )}
+
+                  {validationStatus === "success" && (
+                    <>
+                      <CheckCircle className="h-4 w-4" />
+                      <AlertTitle>Validation Successful</AlertTitle>
+                      <AlertDescription>{validationMessage}</AlertDescription>
+                    </>
+                  )}
+
+                  {validationStatus === "error" && (
+                    <>
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertTitle>Validation Failed</AlertTitle>
+                      <AlertDescription>{validationMessage}</AlertDescription>
+                    </>
+                  )}
+                </Alert>
+              )}
+            </CardContent>
+            <CardFooter className="flex justify-between">
+              <Button variant="outline" onClick={() => setActiveTab("view")}>
+                Cancel
+              </Button>
+              <div className="space-x-2">
+                {file && validationStatus === "idle" && <Button onClick={handleValidate}>Validate File</Button>}
+
+                {file && validationStatus === "success" && <Button onClick={handleUpload}>Upload File</Button>}
+
+                {file && validationStatus === "error" && (
+                  <Button onClick={() => setFile(null)}>Select Another File</Button>
+                )}
+              </div>
+            </CardFooter>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Upload Guidelines</CardTitle>
+              <CardDescription>Please follow these guidelines to ensure successful data upload</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ul className="list-disc pl-5 space-y-2 text-sm">
+                <li>Use the provided Excel template for uploading data</li>
+                <li>Ensure all required fields are filled</li>
+                <li>Data will be validated against existing records</li>
+                <li>Maximum file size: 5MB</li>
+                <li>Supported formats: .xlsx, .xls</li>
+              </ul>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
+</file>
+
 <file path="components/SCFleadmanagement/edit-lead-modal.tsx">
 "use client"
 
@@ -10667,6 +11010,114 @@ export default function EditLeadModal({ lead, isOpen, onClose }: EditLeadModalPr
       </div>
     </div>
   )
+}
+</file>
+
+<file path="components/auth-provider.tsx">
+"use client"
+
+import { createContext, useState, useEffect, useContext, ReactNode } from "react"
+import { useRouter, usePathname } from "next/navigation"
+
+// Define available roles
+export type UserRole = "admin" | "rm" | null
+
+interface AuthContextType {
+  isAuthenticated: boolean
+  userEmail: string | null
+  userRole: UserRole
+  login: (email: string, role: UserRole) => void
+  logout: () => void
+  hasAccess: (page: string) => boolean
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<UserRole>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const router = useRouter()
+  const pathname = usePathname()
+
+  useEffect(() => {
+    // Check if user is logged in from localStorage
+    const loggedIn = localStorage.getItem("isLoggedIn") === "true"
+    const email = localStorage.getItem("userEmail")
+    const role = localStorage.getItem("userRole") as UserRole
+    
+    setIsAuthenticated(loggedIn)
+    setUserEmail(email)
+    setUserRole(role)
+    setIsLoading(false)
+    
+    // Redirect logic
+    if (!isLoading) {
+      if (!isAuthenticated && pathname !== "/login") {
+        router.push("/login")
+      } else if (isAuthenticated && pathname === "/login") {
+        // Redirect based on role
+        if (userRole === "rm") {
+          router.push("/rm-leads")
+        } else {
+          router.push("/dashboard")
+        }
+      }
+    }
+  }, [isAuthenticated, isLoading, pathname, router, userRole])
+
+  // Define page access permissions based on user role
+  const hasAccess = (page: string): boolean => {
+    if (!isAuthenticated || !userRole) return false
+
+    // Admin has access to everything
+    if (userRole === "admin") {
+      return true
+    }
+
+    // RM only has access to RM leads, lead details, and reports pages
+    if (userRole === "rm") {
+      return page === "/rm-leads" || 
+             page.startsWith("/lead-details/") || 
+             page === "/reports"
+    }
+
+    return false
+  }
+
+  const login = (email: string, role: UserRole) => {
+    localStorage.setItem("isLoggedIn", "true")
+    localStorage.setItem("userEmail", email)
+    localStorage.setItem("userRole", role as string)
+    setIsAuthenticated(true)
+    setUserEmail(email)
+    setUserRole(role)
+  }
+
+  const logout = () => {
+    localStorage.removeItem("isLoggedIn")
+    localStorage.removeItem("userEmail")
+    localStorage.removeItem("userRole")
+    setIsAuthenticated(false)
+    setUserEmail(null)
+    setUserRole(null)
+    router.push("/login")
+  }
+
+  return (
+    <AuthContext.Provider value={{ isAuthenticated, userEmail, userRole, login, logout, hasAccess }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext)
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider")
+  }
+  return context
 }
 </file>
 
@@ -11149,322 +11600,6 @@ export default function NewLeads() {
         </TabsContent>
       </Tabs>
     </div>
-  )
-}
-</file>
-
-<file path="components/auth-provider.tsx">
-"use client"
-
-import { createContext, useState, useEffect, useContext, ReactNode } from "react"
-import { useRouter, usePathname } from "next/navigation"
-
-// Define available roles
-export type UserRole = "admin" | "rm" | null
-
-interface AuthContextType {
-  isAuthenticated: boolean
-  userEmail: string | null
-  userRole: UserRole
-  login: (email: string, role: UserRole) => void
-  logout: () => void
-  hasAccess: (page: string) => boolean
-}
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
-
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [userEmail, setUserEmail] = useState<string | null>(null)
-  const [userRole, setUserRole] = useState<UserRole>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const router = useRouter()
-  const pathname = usePathname()
-
-  useEffect(() => {
-    // Check if user is logged in from localStorage
-    const loggedIn = localStorage.getItem("isLoggedIn") === "true"
-    const email = localStorage.getItem("userEmail")
-    const role = localStorage.getItem("userRole") as UserRole
-    
-    setIsAuthenticated(loggedIn)
-    setUserEmail(email)
-    setUserRole(role)
-    setIsLoading(false)
-    
-    // Redirect logic
-    if (!isLoading) {
-      if (!isAuthenticated && pathname !== "/login") {
-        router.push("/login")
-      } else if (isAuthenticated && pathname === "/login") {
-        // Redirect based on role
-        if (userRole === "rm") {
-          router.push("/rm-leads")
-        } else {
-          router.push("/dashboard")
-        }
-      }
-    }
-  }, [isAuthenticated, isLoading, pathname, router, userRole])
-
-  // Define page access permissions based on user role
-  const hasAccess = (page: string): boolean => {
-    if (!isAuthenticated || !userRole) return false
-
-    // Admin has access to everything
-    if (userRole === "admin") {
-      return true
-    }
-
-    // RM only has access to RM leads, lead details, and reports pages
-    if (userRole === "rm") {
-      return page === "/rm-leads" || 
-             page.startsWith("/lead-details/") || 
-             page === "/reports"
-    }
-
-    return false
-  }
-
-  const login = (email: string, role: UserRole) => {
-    localStorage.setItem("isLoggedIn", "true")
-    localStorage.setItem("userEmail", email)
-    localStorage.setItem("userRole", role as string)
-    setIsAuthenticated(true)
-    setUserEmail(email)
-    setUserRole(role)
-  }
-
-  const logout = () => {
-    localStorage.removeItem("isLoggedIn")
-    localStorage.removeItem("userEmail")
-    localStorage.removeItem("userRole")
-    setIsAuthenticated(false)
-    setUserEmail(null)
-    setUserRole(null)
-    router.push("/login")
-  }
-
-  return (
-    <AuthContext.Provider value={{ isAuthenticated, userEmail, userRole, login, logout, hasAccess }}>
-      {children}
-    </AuthContext.Provider>
-  )
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext)
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider")
-  }
-  return context
-}
-</file>
-
-<file path="package.json">
-{
-  "name": "my-v0-project",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
-  },
-  "dependencies": {
-    "@hookform/resolvers": "^3.9.1",
-    "@radix-ui/react-accordion": "^1.2.2",
-    "@radix-ui/react-alert-dialog": "^1.1.4",
-    "@radix-ui/react-aspect-ratio": "^1.1.1",
-    "@radix-ui/react-avatar": "^1.1.2",
-    "@radix-ui/react-checkbox": "^1.1.3",
-    "@radix-ui/react-collapsible": "^1.1.2",
-    "@radix-ui/react-context-menu": "^2.2.4",
-    "@radix-ui/react-dialog": "^1.1.4",
-    "@radix-ui/react-dropdown-menu": "^2.1.4",
-    "@radix-ui/react-hover-card": "^1.1.4",
-    "@radix-ui/react-label": "^2.1.1",
-    "@radix-ui/react-menubar": "^1.1.4",
-    "@radix-ui/react-navigation-menu": "^1.2.3",
-    "@radix-ui/react-popover": "^1.1.4",
-    "@radix-ui/react-progress": "^1.1.1",
-    "@radix-ui/react-radio-group": "^1.2.2",
-    "@radix-ui/react-scroll-area": "^1.2.2",
-    "@radix-ui/react-select": "^2.1.4",
-    "@radix-ui/react-separator": "^1.1.1",
-    "@radix-ui/react-slider": "^1.2.2",
-    "@radix-ui/react-slot": "^1.1.1",
-    "@radix-ui/react-switch": "^1.1.2",
-    "@radix-ui/react-tabs": "^1.1.2",
-    "@radix-ui/react-toast": "^1.2.4",
-    "@radix-ui/react-toggle": "^1.1.1",
-    "@radix-ui/react-toggle-group": "^1.1.1",
-    "@radix-ui/react-tooltip": "^1.1.6",
-    "autoprefixer": "^10.4.20",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "cmdk": "1.0.4",
-    "date-fns": "4.1.0",
-    "dexie": "^4.0.11",
-    "embla-carousel-react": "8.5.1",
-    "file-saver": "^2.0.5",
-    "input-otp": "1.4.1",
-    "lucide-react": "^0.454.0",
-    "next": "15.2.4",
-    "next-themes": "latest",
-    "react": "^19",
-    "react-day-picker": "8.10.1",
-    "react-dom": "^19",
-    "react-hook-form": "^7.54.1",
-    "react-resizable-panels": "^2.1.7",
-    "recharts": "2.15.0",
-    "sonner": "^1.7.1",
-    "tailwind-merge": "^2.5.5",
-    "tailwindcss-animate": "^1.0.7",
-    "vaul": "^0.9.6",
-    "xlsx": "^0.18.5",
-    "zod": "^3.24.1"
-  },
-  "devDependencies": {
-    "@types/file-saver": "^2.0.7",
-    "@types/node": "^22",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "postcss": "^8",
-    "tailwindcss": "^3.4.17",
-    "typescript": "^5"
-  },
-  "packageManager": "pnpm@10.8.0+sha1.ae60ea225bbd6b1f51cd17e91b40431c8b12a052"
-}
-</file>
-
-<file path="components/SCFleadmanagement/masters/anchor-master.tsx">
-"use client"
-
-import MasterLayout from "./master-layout"
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { downloadTemplate } from "@/lib/downloadTemplate"
-
-interface Anchor {
-  anchorname: string
-  anchoruuid: string
-  programname: string
-  programuuid: string
-  segment: string
-  PSMName: string
-  PSMADID: string
-  PSMEmail: string
-  UDF1: string
-  UDF2: string
-}
-
-const ANCHOR_DATA: Anchor[] = [
-  {
-    anchorname: "ABC Corp",
-    anchoruuid: "uuid-abc-001",
-    programname: "Supply Chain Finance",
-    programuuid: "uuid-prog-001",
-    segment: "Large Corporate",
-    PSMName: "John Doe",
-    PSMADID: "ADID001",
-    PSMEmail: "john.doe@example.com",
-    UDF1: "Custom1",
-    UDF2: "Custom2"
-  },
-  // Add more anchors as needed
-]
-
-export default function AnchorMaster() {
-  const [anchors, setAnchors] = useState<Anchor[]>(ANCHOR_DATA)
-  const [newAnchor, setNewAnchor] = useState<Anchor>({
-    anchorname: "",
-    anchoruuid: "",
-    programname: "",
-    programuuid: "",
-    segment: "",
-    PSMName: "",
-    PSMADID: "",
-    PSMEmail: "",
-    UDF1: "",
-    UDF2: ""
-  })
-
-  const handleAdd = () => {
-    setAnchors([
-      ...anchors,
-      { ...newAnchor, anchoruuid: Date.now().toString() },
-    ])
-    setNewAnchor({
-      anchorname: "",
-      anchoruuid: "",
-      programname: "",
-      programuuid: "",
-      segment: "",
-      PSMName: "",
-      PSMADID: "",
-      PSMEmail: "",
-      UDF1: "",
-      UDF2: ""
-    })
-  }
-
-  return (
-    <MasterLayout title="Anchor Master" description="Manage anchor institutions and their details">
-      <div className="flex justify-end mb-4">
-        <Button
-          variant="outline"
-          onClick={() => downloadTemplate([
-            "anchorname",
-            "anchoruuid",
-            "programname",
-            "programuuid",
-            "segment",
-            "PSMName",
-            "PSMADID",
-            "PSMEmail",
-            "UDF1",
-            "UDF2"
-          ], "anchor_template.xlsx")}
-        >
-          Download Template
-        </Button>
-      </div>
-      <table className="w-full border text-sm">
-        <thead>
-          <tr>
-            <th className="px-4 py-2">Anchor Name</th>
-            <th className="px-4 py-2">Anchor UUID</th>
-            <th className="px-4 py-2">Program Name</th>
-            <th className="px-4 py-2">Program UUID</th>
-            <th className="px-4 py-2">Segment</th>
-            <th className="px-4 py-2">PSM Name</th>
-            <th className="px-4 py-2">PSM ADID</th>
-            <th className="px-4 py-2">PSM Email</th>
-            <th className="px-4 py-2">UDF1</th>
-            <th className="px-4 py-2">UDF2</th>
-          </tr>
-        </thead>
-        <tbody>
-          {anchors.map((anchor, idx) => (
-            <tr key={idx}>
-              <td className="border px-4 py-2">{anchor.anchorname}</td>
-              <td className="border px-4 py-2">{anchor.anchoruuid}</td>
-              <td className="border px-4 py-2">{anchor.programname}</td>
-              <td className="border px-4 py-2">{anchor.programuuid}</td>
-              <td className="border px-4 py-2">{anchor.segment}</td>
-              <td className="border px-4 py-2">{anchor.PSMName}</td>
-              <td className="border px-4 py-2">{anchor.PSMADID}</td>
-              <td className="border px-4 py-2">{anchor.PSMEmail}</td>
-              <td className="border px-4 py-2">{anchor.UDF1}</td>
-              <td className="border px-4 py-2">{anchor.UDF2}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </MasterLayout>
   )
 }
 </file>
@@ -11994,6 +12129,198 @@ export default function Reports() {
         </div>
       </div>
     </div>
+  )
+}
+</file>
+
+<file path="package.json">
+{
+  "name": "my-v0-project",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^3.9.1",
+    "@radix-ui/react-accordion": "^1.2.2",
+    "@radix-ui/react-alert-dialog": "^1.1.4",
+    "@radix-ui/react-aspect-ratio": "^1.1.1",
+    "@radix-ui/react-avatar": "^1.1.2",
+    "@radix-ui/react-checkbox": "^1.1.3",
+    "@radix-ui/react-collapsible": "^1.1.2",
+    "@radix-ui/react-context-menu": "^2.2.4",
+    "@radix-ui/react-dialog": "^1.1.4",
+    "@radix-ui/react-dropdown-menu": "^2.1.4",
+    "@radix-ui/react-hover-card": "^1.1.4",
+    "@radix-ui/react-label": "^2.1.1",
+    "@radix-ui/react-menubar": "^1.1.4",
+    "@radix-ui/react-navigation-menu": "^1.2.3",
+    "@radix-ui/react-popover": "^1.1.4",
+    "@radix-ui/react-progress": "^1.1.1",
+    "@radix-ui/react-radio-group": "^1.2.2",
+    "@radix-ui/react-scroll-area": "^1.2.2",
+    "@radix-ui/react-select": "^2.1.4",
+    "@radix-ui/react-separator": "^1.1.1",
+    "@radix-ui/react-slider": "^1.2.2",
+    "@radix-ui/react-slot": "^1.1.1",
+    "@radix-ui/react-switch": "^1.1.2",
+    "@radix-ui/react-tabs": "^1.1.2",
+    "@radix-ui/react-toast": "^1.2.4",
+    "@radix-ui/react-toggle": "^1.1.1",
+    "@radix-ui/react-toggle-group": "^1.1.1",
+    "@radix-ui/react-tooltip": "^1.1.6",
+    "autoprefixer": "^10.4.20",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "cmdk": "1.0.4",
+    "date-fns": "4.1.0",
+    "dexie": "^4.0.11",
+    "embla-carousel-react": "8.5.1",
+    "file-saver": "^2.0.5",
+    "input-otp": "1.4.1",
+    "lucide-react": "^0.454.0",
+    "next": "15.2.4",
+    "next-themes": "latest",
+    "react": "^19",
+    "react-day-picker": "8.10.1",
+    "react-dom": "^19",
+    "react-hook-form": "^7.54.1",
+    "react-resizable-panels": "^2.1.7",
+    "recharts": "2.15.0",
+    "sonner": "^1.7.1",
+    "tailwind-merge": "^2.5.5",
+    "tailwindcss-animate": "^1.0.7",
+    "vaul": "^0.9.6",
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/file-saver": "^2.0.7",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5"
+  },
+  "packageManager": "pnpm@10.8.0+sha1.ae60ea225bbd6b1f51cd17e91b40431c8b12a052"
+}
+</file>
+
+<file path="components/SCFleadmanagement/masters/anchor-master.tsx">
+"use client"
+
+import { useState, useEffect } from "react"
+import MasterLayout from "./master-layout"
+import { Button } from "@/components/ui/button"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { MasterService } from "@/lib/db"
+import type { AnchorMaster } from "@/lib/db"
+import dbUtils from "@/lib/dbUtils"
+
+export default function AnchorMaster() {
+  const [anchors, setAnchors] = useState<AnchorMaster[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    // Load anchor data from IndexedDB
+    const loadAnchors = async () => {
+      try {
+        setLoading(true);
+        const result = await MasterService.getRecords('anchor_master');
+        
+        if (result.success && result.data) {
+          // Type assertion to ensure correct type
+          setAnchors(result.data as AnchorMaster[]);
+        } else {
+          setError("Failed to load anchor data");
+        }
+      } catch (err) {
+        console.error("Error loading anchors:", err);
+        setError("An unexpected error occurred");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadAnchors();
+  }, []);
+
+  return (
+    <MasterLayout 
+      title="Anchor Master" 
+      description="Manage anchor institutions and their details"
+      storeName="anchor_master"
+    >
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <div className="text-center">
+            <div className="inline-block animate-spin h-8 w-8 border-4 border-gray-300 dark:border-gray-700 rounded-full border-t-blue-600 dark:border-t-blue-500"></div>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading anchors...</p>
+          </div>
+        </div>
+      ) : error ? (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 rounded-md p-4 my-4">
+          <p className="text-red-800 dark:text-red-300">{error}</p>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="mt-2"
+            onClick={() => window.location.reload()}
+          >
+            Reload
+          </Button>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Anchor Name</TableHead>
+                <TableHead>Anchor UUID</TableHead>
+                <TableHead>Program Name</TableHead>
+                <TableHead>Program UUID</TableHead>
+                <TableHead>Segment</TableHead>
+                <TableHead>PSM Name</TableHead>
+                <TableHead>PSM ADID</TableHead>
+                <TableHead>PSM Email</TableHead>
+                <TableHead>UDF1</TableHead>
+                <TableHead>UDF2</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {anchors.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={10} className="text-center py-6 text-gray-500 dark:text-gray-400">
+                    No anchor data available. Use the Upload tab to add data.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                anchors.map((anchor, idx) => (
+                  <TableRow key={anchor.id || idx} className="hover:bg-gray-50 dark:hover:bg-gray-900/10">
+                    <TableCell>{anchor.anchorname}</TableCell>
+                    <TableCell>{anchor.anchoruuid}</TableCell>
+                    <TableCell>{anchor.programname}</TableCell>
+                    <TableCell>{anchor.programuuid}</TableCell>
+                    <TableCell>{anchor.segment}</TableCell>
+                    <TableCell>{anchor.PSMName}</TableCell>
+                    <TableCell>{anchor.PSMADID}</TableCell>
+                    <TableCell>{anchor.PSMEmail}</TableCell>
+                    <TableCell>{anchor.UDF1}</TableCell>
+                    <TableCell>{anchor.UDF2}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </MasterLayout>
   )
 }
 </file>

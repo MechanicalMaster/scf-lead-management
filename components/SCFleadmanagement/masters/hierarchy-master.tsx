@@ -3,24 +3,51 @@
 import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Search, Filter } from "lucide-react"
+import { Search, Filter, ChevronLeft, ChevronRight } from "lucide-react"
 import MasterLayout from "./master-layout"
 import { MasterService } from "@/lib/db"
 import type { HierarchyMaster } from "@/lib/db"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+
+// Helper function to safely convert any value to string for search
+const safeString = (value: any): string => {
+  if (value === null || value === undefined) return '';
+  return String(value).toLowerCase();
+};
 
 export default function HierarchyMaster() {
   const [searchTerm, setSearchTerm] = useState("")
   const [hierarchyData, setHierarchyData] = useState<HierarchyMaster[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage] = useState(10)
+  const [totalRecords, setTotalRecords] = useState(0)
 
   useEffect(() => {
     // Load hierarchy data from IndexedDB
     const loadHierarchy = async () => {
       try {
         setLoading(true);
-        const result = await MasterService.getRecords('hierarchy_master');
+        setError(null);
+        
+        // Get total records count
+        const countResult = await MasterService.getTotalRecords('hierarchy_master');
+        if (countResult.success && countResult.count !== undefined) {
+          setTotalRecords(countResult.count);
+        } else {
+          setError("Failed to load record count");
+          return;
+        }
+        
+        // Get paginated records
+        const result = await MasterService.getRecords(
+          'hierarchy_master', 
+          {}, 
+          undefined, 
+          itemsPerPage, 
+          (currentPage - 1) * itemsPerPage
+        );
         
         if (result.success && result.data) {
           // Type assertion to ensure correct type
@@ -37,19 +64,25 @@ export default function HierarchyMaster() {
     };
 
     loadHierarchy();
-  }, []);
+  }, [currentPage, itemsPerPage]);
+  
+  // Pagination handlers
+  const totalPages = Math.ceil(totalRecords / itemsPerPage);
+  const handleNextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
+  const handlePrevPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
 
+  const searchTermLower = searchTerm.toLowerCase();
   const filteredData = hierarchyData.filter(
     (item) =>
-      item.empAdid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.rblAdid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.rblName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.region?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.zhAdid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.zhName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.yesEmail?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.mobile?.toLowerCase().includes(searchTerm.toLowerCase()),
+      safeString(item.empAdid).includes(searchTermLower) ||
+      safeString(item.fullName).includes(searchTermLower) ||
+      safeString(item.rblAdid).includes(searchTermLower) ||
+      safeString(item.rblName).includes(searchTermLower) ||
+      safeString(item.region).includes(searchTermLower) ||
+      safeString(item.zhAdid).includes(searchTermLower) ||
+      safeString(item.zhName).includes(searchTermLower) ||
+      safeString(item.yesEmail).includes(searchTermLower) ||
+      safeString(item.mobile).includes(searchTermLower)
   )
 
   return (
@@ -149,11 +182,37 @@ export default function HierarchyMaster() {
             </Table>
           </div>
 
-          <div className="px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-[#1F1F23]">
+          <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between border-t border-gray-200 dark:border-[#1F1F23] gap-4">
             <div className="text-sm text-gray-700 dark:text-gray-300">
               Showing <span className="font-medium">{filteredData.length}</span> of{" "}
-              <span className="font-medium">{hierarchyData.length}</span> records
+              <span className="font-medium">{totalRecords}</span> records
             </div>
+            
+            {totalRecords > itemsPerPage && (
+              <div className="flex items-center space-x-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handlePrevPage} 
+                  disabled={currentPage === 1}
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-gray-500 dark:text-gray-400">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleNextPage} 
+                  disabled={currentPage === totalPages}
+                  className="h-8 w-8 p-0"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       )}
