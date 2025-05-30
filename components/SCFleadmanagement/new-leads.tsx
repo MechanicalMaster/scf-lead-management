@@ -664,18 +664,18 @@ export default function NewLeads() {
                   <TableBody>
                     {uploadHistory.length > 0 ? (
                       uploadHistory.map((row, index) => (
-                        <TableRow key={index}>
+                      <TableRow key={index}>
                           <TableCell>{row.fileName}</TableCell>
                           <TableCell>{row.uploadDate}</TableCell>
                           <TableCell>{row.uploadedBy}</TableCell>
-                          <TableCell>
-                            <span
-                              className={cn(
-                                "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
-                                {
-                                  "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300":
+                        <TableCell>
+                          <span
+                            className={cn(
+                              "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
+                              {
+                                "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300":
                                     row.status === "Success",
-                                  "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300":
+                                "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300":
                                     row.status === "Failure",
                                 }
                               )}
@@ -683,7 +683,7 @@ export default function NewLeads() {
                               {row.status === "Success" && <CheckCircle className="mr-1 h-3 w-3" />}
                               {row.status === "Failure" && <XCircle className="mr-1 h-3 w-3" />}
                               {row.status}
-                            </span>
+                          </span>
                           </TableCell>
                           <TableCell>
                             <Button variant="link" className="p-0 h-auto text-blue-500 hover:text-blue-700">

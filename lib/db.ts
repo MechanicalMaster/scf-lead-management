@@ -91,7 +91,18 @@ export interface ProcessedLead {
   errorDescription: string | null;
 }
 
-type StoreName = 'anchor_master' | 'hierarchy_master' | 'holiday_master' | 'pincode_branch' | 'rm_branch' | 'error_codes' | 'processed_leads';
+export interface LeadCommunication {
+  id: string; // UUID for the communication
+  leadId: string; // Processed lead ID this communication is related to
+  rmEmail: string; // Email of the RM this communication is for/from
+  messageType: 'assignment' | 'reply'; // Type of communication
+  content: string; // Content of the message
+  timestamp: string; // ISO date string
+  sender: 'system' | 'rm'; // Who sent the message
+  recipient: 'rm' | 'system'; // Who the message is for
+}
+
+type StoreName = 'anchor_master' | 'hierarchy_master' | 'holiday_master' | 'pincode_branch' | 'rm_branch' | 'error_codes' | 'processed_leads' | 'lead_communications';
 
 type StoreTableMap = {
   anchor_master: AnchorMaster;
@@ -101,6 +112,7 @@ type StoreTableMap = {
   rm_branch: RMBranch;
   error_codes: ErrorCodeMaster;
   processed_leads: ProcessedLead;
+  lead_communications: LeadCommunication;
 };
 
 // --- Dexie Database Setup ---
@@ -112,6 +124,7 @@ class SCFLeadManagementDB extends Dexie {
   rm_branch!: Table<RMBranch, string>;
   error_codes!: Table<ErrorCodeMaster, string>;
   processed_leads!: Table<ProcessedLead, string>;
+  lead_communications!: Table<LeadCommunication, string>;
 
   constructor() {
     super('SCFLeadManagement');
@@ -137,6 +150,19 @@ class SCFLeadManagementDB extends Dexie {
       error_codes: '++id, errorCode, module, severity',
       processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode'
     });
+
+    // Version 4: Add lead_communications table
+    this.version(4).stores({
+      lead_communications: 'id, leadId, rmEmail, messageType, timestamp, sender, recipient',
+      // Carry forward all table definitions from previous versions
+      anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
+      hierarchy_master: 'id, employeeName, empAdid, fullName, rblAdid, rblName, region, zhAdid, zhName',
+      holiday_master: 'id, Date, HolidayType, date, name, type, description',
+      pincode_branch: 'id, pincode, branchCode, branchName, city, state, region, active',
+      rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
+      error_codes: '++id, errorCode, module, severity',
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode'
+    });
   }
 }
 
@@ -150,7 +176,8 @@ const STORE_FIELDS: Record<StoreName, string[]> = {
   pincode_branch: ['id', 'pincode', 'branchCode', 'branchName', 'city', 'state', 'region', 'active'],
   rm_branch: ['id', 'rmId', 'rmName', 'branchCode', 'branchName', 'region', 'role', 'active'],
   error_codes: ['id', 'errorCode', 'description', 'module', 'severity'],
-  processed_leads: []  // No direct upload via master UI, populated programmatically
+  processed_leads: [],  // No direct upload via master UI, populated programmatically
+  lead_communications: ['id', 'leadId', 'rmEmail', 'messageType', 'content', 'timestamp', 'sender', 'recipient']
 };
 
 // --- MasterService Class ---

@@ -81,7 +81,11 @@ export default function Sidebar() {
               {/* Show role indicator */}
               <div className="px-3 py-2 bg-blue-50 dark:bg-blue-900/30 rounded-md">
                 <div className="text-xs text-blue-500 dark:text-blue-400 font-medium">
-                  {userRole === "admin" ? "Admin User" : "RM User"}
+                  {userRole === "admin" 
+                    ? "Admin User" 
+                    : userRole === "rm"
+                      ? "RM User"
+                      : "RM Inbox User"}
                 </div>
               </div>
 
@@ -109,6 +113,9 @@ export default function Sidebar() {
                   </NavItem>
                   <NavItem href="/rm-leads" icon={Users}>
                     RM Leads
+                  </NavItem>
+                  <NavItem href="/rm-inbox" icon={Users}>
+                    RM Inbox
                   </NavItem>
                   <NavItem href="/psm-leads" icon={Users}>
                     PSM Leads

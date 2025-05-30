@@ -4,7 +4,7 @@ import { createContext, useState, useEffect, useContext, ReactNode } from "react
 import { useRouter, usePathname } from "next/navigation"
 
 // Define available roles
-export type UserRole = "admin" | "rm" | null
+export type UserRole = "admin" | "rm" | "rm-inbox" | null
 
 interface AuthContextType {
   isAuthenticated: boolean
@@ -44,6 +44,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Redirect based on role
         if (userRole === "rm") {
           router.push("/rm-leads")
+        } else if (userRole === "rm-inbox") {
+          router.push("/rm-inbox")
         } else {
           router.push("/dashboard")
         }
@@ -65,6 +67,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return page === "/rm-leads" || 
              page.startsWith("/lead-details/") || 
              page === "/reports"
+    }
+    
+    // RM-inbox users only have access to their inbox and lead details
+    if (userRole === "rm-inbox") {
+      return page === "/rm-inbox" || 
+             page.startsWith("/lead-details/")
     }
 
     return false

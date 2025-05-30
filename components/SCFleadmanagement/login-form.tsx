@@ -12,6 +12,9 @@ import { useAuth, UserRole } from "@/components/auth-provider"
 const USERS = [
   { email: "admin@yesbank.in", password: "password", role: "admin" as UserRole },
   { email: "rm@yesbank.in", password: "password", role: "rm" as UserRole },
+  { email: "rm1@yesbank.in", password: "password", role: "rm-inbox" as UserRole },
+  { email: "rm2@yesbank.in", password: "password", role: "rm-inbox" as UserRole },
+  { email: "rm3@yesbank.in", password: "password", role: "rm-inbox" as UserRole },
 ]
 
 export default function LoginForm() {
@@ -41,6 +44,8 @@ export default function LoginForm() {
         // Redirect based on role
         if (user.role === "rm") {
           router.push("/rm-leads")
+        } else if (user.role === "rm-inbox") {
+          router.push("/rm-inbox")
         } else {
           router.push("/dashboard")
         }
@@ -61,6 +66,8 @@ export default function LoginForm() {
           Admin: admin@yesbank.in / password
           <br />
           RM: rm@yesbank.in / password
+          <br />
+          RM Inbox Users: rm1@yesbank.in, rm2@yesbank.in, rm3@yesbank.in / password
         </p>
       </div>
       

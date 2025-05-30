@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { 
   ArrowLeft, MessageSquare, Mail, AlertTriangle, 
   Calendar, Clock, Check, ChevronDown, ChevronUp, 
@@ -10,6 +10,8 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
+import db, { LeadCommunication } from "@/lib/db"
+import { format } from "date-fns"
 
 interface Lead {
   id: string
@@ -136,6 +138,33 @@ const LEAD_HISTORY: LeadHistory[] = [
 
 export default function LeadDetails({ leadId }: LeadDetailsProps) {
   const [expandedItems, setExpandedItems] = useState<string[]>([])
+  const [communications, setCommunications] = useState<LeadCommunication[]>([])
+  const [loadingComms, setLoadingComms] = useState(true)
+
+  // Fetch communications for this lead
+  useEffect(() => {
+    async function fetchCommunications() {
+      try {
+        const comms = await db.lead_communications
+          .where('leadId')
+          .equals(leadId)
+          .toArray()
+          
+        // Sort by timestamp (newest first)
+        const sortedComms = comms.sort((a: LeadCommunication, b: LeadCommunication) =>
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        )
+        
+        setCommunications(sortedComms)
+      } catch (err) {
+        console.error("Error fetching communications:", err)
+      } finally {
+        setLoadingComms(false)
+      }
+    }
+    
+    fetchCommunications()
+  }, [leadId])
 
   const toggleItem = (itemId: string) => {
     setExpandedItems(prevItems => 
@@ -381,6 +410,93 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
           </div>
         </div>
       </div>
+
+      <Tabs defaultValue="rm-communications" className="mt-6">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="rm-communications">RM Communications</TabsTrigger>
+          <TabsTrigger value="lead-notes">Lead Notes</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="rm-communications">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-white">RM Communications</h3>
+            </div>
+            
+            {loadingComms ? (
+              <div className="animate-pulse space-y-4">
+                <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded"></div>
+              </div>
+            ) : communications.length === 0 ? (
+              <div className="text-center py-8 px-4 rounded-lg border border-dashed border-gray-300 dark:border-gray-600">
+                <MessageSquare className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+                <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-1">
+                  No RM Communications
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  There are no communications for this lead yet.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {communications.map((comm) => (
+                  <div 
+                    key={comm.id} 
+                    className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
+                  >
+                    <div 
+                      className="bg-gray-50 dark:bg-gray-800 px-4 py-3 flex justify-between items-center cursor-pointer"
+                      onClick={() => toggleItem(comm.id)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-1 text-xs rounded-full ${
+                          comm.messageType === 'assignment' 
+                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' 
+                            : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+                        }`}>
+                          {comm.messageType === 'assignment' ? 'Assignment' : 'Reply'}
+                        </span>
+                        <span className="text-sm font-medium">
+                          {comm.sender === 'system' ? 'System' : 'RM'} 
+                          {comm.sender === 'system' ? ' → ' : ' → '}
+                          {comm.recipient === 'rm' ? 'RM' : 'System'}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {format(new Date(comm.timestamp), 'MMM d, yyyy h:mm a')}
+                        </span>
+                      </div>
+                      {isItemExpanded(comm.id) ? (
+                        <ChevronUp className="h-4 w-4 text-gray-500" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-gray-500" />
+                      )}
+                    </div>
+                    
+                    {isItemExpanded(comm.id) && (
+                      <div className="p-4 bg-white dark:bg-[#0F0F12]">
+                        <div className="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
+                          {comm.content}
+                        </div>
+                        <div className="mt-3 text-xs text-gray-500">
+                          <span className="font-medium">RM Email:</span> {comm.rmEmail}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </TabsContent>
+        
+        <TabsContent value="lead-notes">
+          <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+            Lead notes feature coming soon
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 } 
