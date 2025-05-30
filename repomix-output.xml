@@ -64,6 +64,8 @@ app/
   login/
     page.tsx
   masters/
+    ai-prompts/
+      page.tsx
     anchor-master/
       page.tsx
     error-code-master/
@@ -92,6 +94,7 @@ app/
 components/
   SCFleadmanagement/
     masters/
+      ai-prompts-master.tsx
       anchor-master.tsx
       error-code-master.tsx
       hierarchy-master.tsx
@@ -166,6 +169,7 @@ components/
     tooltip.tsx
     use-mobile.tsx
     use-toast.ts
+  app-provider.tsx
   auth-provider.tsx
   client-side-auth-wrapper.tsx
   route-guard.tsx
@@ -175,6 +179,7 @@ hooks/
   use-mobile.tsx
   use-toast.ts
 lib/
+  ai-service.ts
   constants.ts
   db-init.ts
   db.ts
@@ -190,7 +195,7 @@ public/
 styles/
   globals.css
 .gitignore
-BRD.txt
+ai.md
 components.json
 next.config.mjs
 package.json
@@ -202,6 +207,672 @@ tsconfig.json
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="app/masters/ai-prompts/page.tsx">
+"use client"
+
+import dynamic from 'next/dynamic'
+import { Suspense } from 'react'
+
+// Use dynamic import with SSR disabled to prevent hydration issues with IndexedDB
+const AIPromptsMaster = dynamic(
+  () => import('@/components/SCFleadmanagement/masters/ai-prompts-master'),
+  { ssr: false }
+)
+
+export default function AIPromptsPage() {
+  return (
+    <Suspense fallback={<div>Loading AI Prompts Master...</div>}>
+      <AIPromptsMaster />
+    </Suspense>
+  )
+}
+</file>
+
+<file path="components/SCFleadmanagement/masters/ai-prompts-master.tsx">
+"use client"
+
+import { useState, useEffect } from "react"
+import { PlusCircle, Edit, Trash2, Check, X, LucideIcon } from "lucide-react"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import MasterLayout from "./master-layout"
+import db from "@/lib/db"
+import type { AIPromptsMaster } from "@/lib/db"
+import { v4 as uuidv4 } from 'uuid'
+
+export default function AIPromptsMaster() {
+  const [configs, setConfigs] = useState<AIPromptsMaster[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [editingConfig, setEditingConfig] = useState<AIPromptsMaster | null>(null)
+  
+  // Default values for a new config
+  const defaultConfig: Omit<AIPromptsMaster, 'id' | 'createdAt' | 'updatedAt'> = {
+    configName: '',
+    serviceProvider: 'OpenAI',
+    apiKey: '',
+    apiEndpoint: 'https://api.openai.com/v1',
+    defaultModel: 'gpt-3.5-turbo',
+    promptSummary: 'Please provide a concise 2-3 word summary of this RM reply: {reply_text}',
+    promptNextAction: 'Based on this RM reply, determine if the dealer is interested in a follow-up or not. Reply with ONLY "FollowUp" if follow-up is needed, or "Dealer Not Interested" if the dealer is expressing disinterest or rejection: {reply_text}',
+    isActive: false
+  }
+  
+  // Form state
+  const [formData, setFormData] = useState<Omit<AIPromptsMaster, 'id' | 'createdAt' | 'updatedAt'>>(defaultConfig)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  
+  // Load AI prompts configs
+  useEffect(() => {
+    const loadConfigs = async () => {
+      try {
+        setIsLoading(true)
+        const aiConfigs = await db.ai_prompts_master.toArray()
+        setConfigs(aiConfigs)
+      } catch (error) {
+        console.error('Error loading AI prompts:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    
+    loadConfigs()
+  }, [])
+  
+  // Open dialog for new config
+  const handleAddNew = () => {
+    setFormData(defaultConfig)
+    setEditingConfig(null)
+    setIsDialogOpen(true)
+  }
+  
+  // Open dialog for editing existing config
+  const handleEdit = (config: AIPromptsMaster) => {
+    setFormData({
+      configName: config.configName,
+      serviceProvider: config.serviceProvider,
+      apiKey: config.apiKey,
+      apiEndpoint: config.apiEndpoint || 'https://api.openai.com/v1',
+      defaultModel: config.defaultModel,
+      promptSummary: config.promptSummary,
+      promptNextAction: config.promptNextAction,
+      isActive: config.isActive
+    })
+    setEditingConfig(config)
+    setIsDialogOpen(true)
+  }
+  
+  // Handle form input changes
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setFormData(prev => ({ ...prev, [name]: value }))
+  }
+  
+  // Handle select changes
+  const handleSelectChange = (name: string, value: string) => {
+    setFormData(prev => ({ ...prev, [name]: value }))
+  }
+  
+  // Handle switch changes
+  const handleSwitchChange = (name: string, checked: boolean) => {
+    setFormData(prev => ({ ...prev, [name]: checked }))
+  }
+  
+  // Save config
+  const handleSave = async () => {
+    try {
+      setIsSubmitting(true)
+      
+      const now = new Date().toISOString()
+      
+      // If making this config active, deactivate all others
+      if (formData.isActive) {
+        await db.ai_prompts_master.where('isActive').equals(1).modify({ isActive: false })
+      }
+      
+      if (editingConfig) {
+        // Update existing
+        await db.ai_prompts_master.update(editingConfig.id, {
+          ...formData,
+          updatedAt: now
+        })
+      } else {
+        // Create new
+        await db.ai_prompts_master.add({
+          ...formData,
+          id: uuidv4(),
+          createdAt: now,
+          updatedAt: now
+        })
+      }
+      
+      // Refresh the list
+      const updatedConfigs = await db.ai_prompts_master.toArray()
+      setConfigs(updatedConfigs)
+      
+      // Close dialog
+      setIsDialogOpen(false)
+    } catch (error) {
+      console.error('Error saving AI prompt config:', error)
+      alert('Error saving configuration. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+  
+  // Delete config
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this configuration?')) return
+    
+    try {
+      await db.ai_prompts_master.delete(id)
+      
+      // Refresh the list
+      const updatedConfigs = await db.ai_prompts_master.toArray()
+      setConfigs(updatedConfigs)
+    } catch (error) {
+      console.error('Error deleting AI prompt config:', error)
+      alert('Error deleting configuration. Please try again.')
+    }
+  }
+  
+  // Toggle active status
+  const handleToggleActive = async (config: AIPromptsMaster) => {
+    try {
+      // If activating, deactivate all others
+      if (!config.isActive) {
+        await db.ai_prompts_master.where('isActive').equals(1).modify({ isActive: false })
+      }
+      
+      // Toggle this config
+      await db.ai_prompts_master.update(config.id, {
+        isActive: !config.isActive,
+        updatedAt: new Date().toISOString()
+      })
+      
+      // Refresh the list
+      const updatedConfigs = await db.ai_prompts_master.toArray()
+      setConfigs(updatedConfigs)
+    } catch (error) {
+      console.error('Error toggling active status:', error)
+      alert('Error updating configuration. Please try again.')
+    }
+  }
+  
+  return (
+    <MasterLayout
+      title="AI Prompts Master"
+      description="Manage AI prompt configurations for lead analysis and summarization"
+    >
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-semibold">AI Prompt Configurations</h2>
+        <Button onClick={handleAddNew} className="gap-1">
+          <PlusCircle className="h-4 w-4" />
+          Add New
+        </Button>
+      </div>
+      
+      {isLoading ? (
+        <div className="py-8 text-center">Loading configurations...</div>
+      ) : configs.length === 0 ? (
+        <div className="py-8 text-center text-gray-500 dark:text-gray-400">
+          No AI prompt configurations found. Click "Add New" to create one.
+        </div>
+      ) : (
+        <div className="border rounded-md">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Config Name</TableHead>
+                <TableHead>Service Provider</TableHead>
+                <TableHead>Model</TableHead>
+                <TableHead>Active</TableHead>
+                <TableHead>Last Updated</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {configs.map((config) => (
+                <TableRow key={config.id}>
+                  <TableCell className="font-medium">{config.configName}</TableCell>
+                  <TableCell>{config.serviceProvider}</TableCell>
+                  <TableCell>{config.defaultModel}</TableCell>
+                  <TableCell>
+                    <Switch 
+                      checked={config.isActive} 
+                      onCheckedChange={() => handleToggleActive(config)}
+                    />
+                  </TableCell>
+                  <TableCell>{new Date(config.updatedAt).toLocaleDateString()}</TableCell>
+                  <TableCell className="text-right">
+                    <Button variant="ghost" size="sm" onClick={() => handleEdit(config)}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDelete(config.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+      
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingConfig ? 'Edit' : 'New'} AI Prompt Configuration</DialogTitle>
+          </DialogHeader>
+          
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="configName">Configuration Name</Label>
+                <Input
+                  id="configName"
+                  name="configName"
+                  value={formData.configName}
+                  onChange={handleInputChange}
+                  placeholder="e.g., OpenAI GPT-3.5"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="serviceProvider">Service Provider</Label>
+                <Select 
+                  value={formData.serviceProvider}
+                  onValueChange={(value) => handleSelectChange('serviceProvider', value)}
+                >
+                  <SelectTrigger id="serviceProvider">
+                    <SelectValue placeholder="Select service provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="OpenAI">OpenAI</SelectItem>
+                    <SelectItem value="Azure OpenAI">Azure OpenAI</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="apiKey">
+                  API Key
+                  <span className="text-xs text-gray-500 ml-2">(stored locally)</span>
+                </Label>
+                <Input
+                  id="apiKey"
+                  name="apiKey"
+                  type="password"
+                  value={formData.apiKey}
+                  onChange={handleInputChange}
+                  placeholder="sk-..."
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="defaultModel">Default Model</Label>
+                <Select 
+                  value={formData.defaultModel}
+                  onValueChange={(value) => handleSelectChange('defaultModel', value)}
+                >
+                  <SelectTrigger id="defaultModel">
+                    <SelectValue placeholder="Select model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="gpt-3.5-turbo">GPT-3.5 Turbo</SelectItem>
+                    <SelectItem value="gpt-4">GPT-4</SelectItem>
+                    <SelectItem value="gpt-4-turbo">GPT-4 Turbo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="apiEndpoint">API Endpoint URL</Label>
+              <Input
+                id="apiEndpoint"
+                name="apiEndpoint"
+                value={formData.apiEndpoint || ''}
+                onChange={handleInputChange}
+                placeholder="https://api.openai.com/v1"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="promptSummary">Summary Prompt Template</Label>
+              <Textarea
+                id="promptSummary"
+                name="promptSummary"
+                value={formData.promptSummary}
+                onChange={handleInputChange}
+                placeholder="Please provide a concise 2-3 word summary of this RM reply: {reply_text}"
+                rows={3}
+              />
+              <p className="text-xs text-gray-500">
+                Use {'{reply_text}'} as a placeholder for the RM's reply content.
+              </p>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="promptNextAction">Next Action Prediction Prompt Template</Label>
+              <Textarea
+                id="promptNextAction"
+                name="promptNextAction"
+                value={formData.promptNextAction}
+                onChange={handleInputChange}
+                placeholder="Based on this RM reply, determine if the dealer is interested in a follow-up or not. Reply with ONLY 'FollowUp' or 'Dealer Not Interested': {reply_text}"
+                rows={3}
+              />
+              <p className="text-xs text-gray-500">
+                Use {'{reply_text}'} as a placeholder for the RM's reply content.
+              </p>
+            </div>
+            
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="isActive"
+                checked={formData.isActive}
+                onCheckedChange={(checked) => handleSwitchChange('isActive', checked)}
+              />
+              <Label htmlFor="isActive">Make this configuration active</Label>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={isSubmitting}>
+              {isSubmitting ? 'Saving...' : 'Save Configuration'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </MasterLayout>
+  )
+}
+</file>
+
+<file path="components/app-provider.tsx">
+"use client"
+
+import React, { createContext, useContext, ReactNode } from 'react'
+
+interface AppContextType {
+  isAppReady: boolean
+}
+
+const defaultContext: AppContextType = {
+  isAppReady: false
+}
+
+const AppContext = createContext<AppContextType>(defaultContext)
+
+export const useApp = () => useContext(AppContext)
+
+export function AppProvider({ children }: { children: ReactNode }) {
+  const [isAppReady, setIsAppReady] = React.useState(false)
+
+  // Mark the app as ready after first render
+  React.useEffect(() => {
+    setIsAppReady(true)
+  }, [])
+
+  return (
+    <AppContext.Provider 
+      value={{ 
+        isAppReady
+      }}
+    >
+      {children}
+    </AppContext.Provider>
+  )
+}
+</file>
+
+<file path="lib/ai-service.ts">
+import OpenAI from 'openai';
+import db from './db';
+import { AIPromptsMaster } from './db';
+
+// Define the response type for AI analysis
+export interface AIAnalysisResult {
+  summary: string;
+  nextActionPrediction: 'FollowUp' | 'Dealer Not Interested';
+  tokensConsumed: number;
+}
+
+/**
+ * Get the active AI configuration
+ */
+export async function getActiveAIConfig(): Promise<AIPromptsMaster | null> {
+  try {
+    const config = await db.ai_prompts_master
+      .where('isActive')
+      .equals(1)
+      .first();
+    
+    return config || null;
+  } catch (error) {
+    console.error('Error retrieving active AI config:', error);
+    return null;
+  }
+}
+
+/**
+ * Analyzes the RM reply text and returns a summary and next action prediction
+ */
+export async function getAiAnalysisForReply(replyText: string): Promise<AIAnalysisResult | null> {
+  try {
+    // Get active AI configuration
+    const config = await getActiveAIConfig();
+    
+    if (!config || !config.apiKey) {
+      console.warn('No active AI configuration found or missing API key');
+      return null;
+    }
+    
+    // Initialize OpenAI client
+    const openai = new OpenAI({
+      apiKey: config.apiKey,
+      baseURL: config.apiEndpoint || undefined,
+    });
+    
+    // Prepare prompts
+    const summaryPrompt = config.promptSummary.replace('{reply_text}', replyText);
+    const nextActionPrompt = config.promptNextAction.replace('{reply_text}', replyText);
+    
+    // Get summary from OpenAI
+    const summaryResponse = await openai.chat.completions.create({
+      model: config.defaultModel,
+      messages: [
+        { role: 'system', content: 'You are a concise summarization assistant that provides brief, accurate summaries in 2-3 words.' },
+        { role: 'user', content: summaryPrompt }
+      ],
+      max_tokens: 20,
+    });
+    
+    // Get next action prediction from OpenAI
+    const nextActionResponse = await openai.chat.completions.create({
+      model: config.defaultModel,
+      messages: [
+        { role: 'system', content: 'You are an assistant that analyzes dealer responses. Respond with only "FollowUp" or "Dealer Not Interested".' },
+        { role: 'user', content: nextActionPrompt }
+      ],
+      max_tokens: 20,
+    });
+    
+    // Extract responses
+    const summary = summaryResponse.choices[0]?.message.content?.trim() || 'No summary available';
+    const nextActionRaw = nextActionResponse.choices[0]?.message.content?.trim() || 'FollowUp';
+    
+    // Normalize the next action prediction
+    let nextActionPrediction: 'FollowUp' | 'Dealer Not Interested';
+    if (nextActionRaw.includes('Not Interested') || nextActionRaw.toLowerCase().includes('not interested')) {
+      nextActionPrediction = 'Dealer Not Interested';
+    } else {
+      nextActionPrediction = 'FollowUp';
+    }
+    
+    // Calculate tokens consumed
+    const totalTokens = 
+      (summaryResponse.usage?.total_tokens || 0) + 
+      (nextActionResponse.usage?.total_tokens || 0);
+    
+    return {
+      summary,
+      nextActionPrediction,
+      tokensConsumed: totalTokens
+    };
+  } catch (error) {
+    console.error('Error in AI analysis:', error);
+    return null;
+  }
+}
+
+/**
+ * Maps the AI next action prediction to a workflow stage
+ */
+export function mapAIDecisionToWorkflowStage(aiDecision: string): string {
+  if (aiDecision === 'Dealer Not Interested') {
+    return 'Dropped';
+  } else {
+    return 'RM_AwaitingReply';
+  }
+}
+</file>
+
+<file path="ai.md">
+**Revised Planning Phase:**
+
+**A. Implementation Plan:**
+
+1.  **Database Schema Updates (IndexedDB - Dexie):**
+    1.  Define a new table schema for `AIPromptsMaster`.
+        *   Fields: `id` (string, UUID, primary key), `configName` (string, e.g., "OpenAI Main"), `serviceProvider` (string, e.g., "OpenAI"), `apiKey` (string), `apiEndpoint` (string, optional), `defaultModel` (string, e.g., "gpt-3.5-turbo"), `promptSummary` (string, template for 2-3 word summary), `promptNextAction` (string, template for predicting "FollowUp" or "Dealer Not Interested"), `isActive` (boolean).
+    2.  Update the `LeadCommunication` interface and table schema:
+        *   Add `aiTokensConsumed` (number, optional).
+        *   The existing `aiSummary` field will store the 2-3 word summary.
+        *   The existing `aiDecision` field will store the AI-predicted next action ("FollowUp" or "Dealer Not Interested").
+    3.  Review `LeadWorkflowState` interface and table schema:
+        *   Ensure `currentStage` can accommodate "FollowUp" and "Dealer Not Interested" as valid stages, or map these AI predictions to existing appropriate workflow stages. For this plan, we'll assume "FollowUp" might map to an existing stage like `RM_AwaitingReply` or a new `RM_FollowUpScheduled` stage, and "Dealer Not Interested" might map to `Dropped` or a new `RM_DealerNotInterested` stage. This mapping needs to be clearly defined.
+        *   If new stages are introduced, add them to the `stageToFlagMap` in `lib/lead-workflow.ts`.
+
+2.  **Define Stage Mapping for AI Predictions:**
+    1.  Establish a clear mapping from AI's predicted "FollowUp" and "Dealer Not Interested" to actual `LeadWorkflowState.currentStage` values.
+        *   Example:
+            *   AI predicts "FollowUp" -> `LeadWorkflowState.currentStage` becomes `RM_FollowUpPending` (or a similar existing/new stage).
+            *   AI predicts "Dealer Not Interested" -> `LeadWorkflowState.currentStage` becomes `Dropped` (and potentially `droppedReason` is set to "AI: Dealer Not Interested based on RM reply").
+    2.  This mapping logic will be used in step 5.
+
+3.  **Create "AI Prompts" Master UI:**
+    1.  Create new page route: `app/masters/ai-prompts/page.tsx`.
+    2.  Create new component: `components/SCFleadmanagement/masters/ai-prompts-master.tsx`.
+    3.  This component will use `MasterLayout.tsx`.
+        *   **View Tab:** Display configurations (masked API Key).
+        *   **Upload Tab/Form:** Allow creation/editing of configurations. (Consider an inline form for easier API key handling).
+    4.  Add "AI Prompts" to sidebar navigation.
+
+4.  **AI Service Integration Logic:**
+    1.  Create `lib/ai-service.ts`.
+    2.  Implement `async getAiAnalysisForReply(replyText: string): Promise<{ summary: string; nextActionPrediction: string; tokensConsumed: number } | null>`.
+        *   Fetches active AI config from `ai_prompts_master`.
+        *   Handles API calls for summarization and next action prediction.
+        *   **SECURITY WARNING:** Client-side API calls with client-stored keys are insecure for production. This assumes a prototype context.
+        *   Returns summary, predicted next action (as "FollowUp" or "Dealer Not Interested"), and tokens.
+
+5.  **Integrate AI Processing and Workflow Update into RM Reply:**
+    1.  Modify `submitReply` function in `components/SCFleadmanagement/rm-inbox.tsx` (or the primary handler for RM replies, potentially `handleRMReply` in `lib/lead-workflow-examples.ts`).
+    2.  After getting `replyText`:
+        *   Call `getAiAnalysisForReply(replyText)`.
+        *   **If AI analysis is successful:**
+            *   Use the `nextActionPrediction` and the mapping defined in Step 2 to determine the `newStage` for the lead.
+            *   Call `createRMReplyCommunication` (from `lib/lead-workflow.ts`) passing the `replyText`, AI `summary` (as `aiSummary`), AI `nextActionPrediction` (as `aiDecision`), and `tokensConsumed`.
+            *   Fetch the current `LeadWorkflowState` for the lead using `getLeadWorkflowStateByProcessedLeadId`.
+            *   Update the `LeadWorkflowState`:
+                *   Set `currentStage` to the `newStage` determined from AI.
+                *   Update `lastStageChangeTimestamp`.
+                *   Update `lastCommunicationTimestamp`.
+                *   If the new stage is `Dropped`, set `droppedReason` (e.g., "AI: Dealer Not Interested").
+                *   Optionally, adjust `nextFollowUpTimestamp` based on the new stage.
+                *   Call `updateLeadWorkflowState` to save changes.
+        *   **If AI analysis fails or is not configured:**
+            *   Proceed to call `createRMReplyCommunication` with null/default values for AI fields.
+            *   The lead's workflow stage will *not* be automatically updated by AI in this case. (Consider if a manual stage update option is still desired or if all stage changes post-reply should be AI-driven). For this plan, we assume no automatic stage change if AI fails.
+
+6.  **Refine `LeadWorkflowState` Management:**
+    1.  Ensure `updateLeadWorkflowState` in `lib/lead-workflow.ts` can correctly handle the stage changes triggered by AI, including updating `lastStageChangeTimestamp` and `updatedAt`.
+    2.  Update `stageToFlagMap` in `lib/lead-workflow.ts` if new stages were introduced (e.g., `RM_FollowUpPending`, `RM_DealerNotInterested`).
+
+7.  **Display AI-Generated Information & Updated Stage:**
+    1.  In `components/SCFleadmanagement/lead-details.tsx` and `components/SCFleadmanagement/rm-inbox.tsx` (when expanding messages):
+        *   Display the `aiSummary`, `aiDecision` (AI's raw prediction), and `aiTokensConsumed` for `RMReply` communications.
+        *   Ensure the lead's displayed flag/status reflects the `currentStage` in `LeadWorkflowState` which might have been updated by the AI.
+    2.  In `components/SCFleadmanagement/rm-leads.tsx`:
+        *   Ensure the "Flag" column correctly reflects the updated `currentStage` from `LeadWorkflowState`.
+
+**B. Affected Files:**
+
+1.  `lib/db.ts`:
+    *   Add `AIPromptsMaster` interface.
+    *   Add `ai_prompts_master` table to `SCFLeadManagementDB` class schema and version bump.
+    *   Update `LeadCommunication` interface: add `aiTokensConsumed?: number;`. (Ensure `aiSummary` and `aiDecision` are present).
+    *   Update `lead_communications` table schema.
+    *   Review `LeadWorkflowState` interface and table schema for new stages (if any).
+    *   Update `STORE_FIELDS` constant.
+
+2.  `app/masters/ai-prompts/page.tsx` (New file).
+3.  `components/SCFleadmanagement/masters/ai-prompts-master.tsx` (New file).
+4.  `components/SCFleadmanagement/masters/master-layout.tsx` (Potentially minor changes if "Upload" tab needs customization for AI Prompts).
+5.  `components/SCFleadmanagement/sidebar.tsx`:
+    *   Add navigation link for "AI Prompts".
+
+6.  `lib/ai-service.ts` (New file):
+    *   `getAiAnalysisForReply` function.
+
+7.  `components/SCFleadmanagement/rm-inbox.tsx`:
+    *   `submitReply` function:
+        *   Call `getAiAnalysisForReply`.
+        *   Logic to determine `newStage` based on AI prediction.
+        *   Call `createRMReplyCommunication` with AI data.
+        *   Fetch and update `LeadWorkflowState` using `getLeadWorkflowStateByProcessedLeadId` and `updateLeadWorkflowState`.
+
+8.  `lib/lead-workflow.ts`:
+    *   `createRMReplyCommunication` function: update signature for `aiTokensConsumed` and ensure AI fields are saved.
+    *   `updateLeadWorkflowState` function: ensure it correctly handles stage updates.
+    *   `getLeadWorkflowStateByProcessedLeadId` function (will be used by `rm-inbox.tsx`).
+    *   `stageToFlagMap`: update with any new stages.
+
+9.  `components/SCFleadmanagement/lead-details.tsx`:
+    *   Display AI fields from `LeadCommunication`.
+    *   Ensure displayed lead status/flag is current.
+
+10. `components/SCFleadmanagement/rm-leads.tsx`:
+    *   Ensure "Flag" column reflects the potentially AI-updated stage.
+
+11. `lib/db-init.ts` (Potentially for default `AIPromptsMaster` data).
+
+**C. Configuration or Database Migrations:**
+
+1.  **Database Migration (Dexie):**
+    *   Increment database version in `lib/db.ts`.
+    *   Define `ai_prompts_master` table store.
+    *   Add `aiTokensConsumed` to `lead_communications` store.
+    *   If new stages are added to `LeadWorkflowState.currentStage`, ensure any existing data is handled or that the enum/type definition allows for them.
+
+2.  **AI Prompt Configuration:**
+    *   At least one active configuration (with API key and prompt templates for summarization and next action) must be set up in the "AI Prompts" master for the feature to function.
+</file>
 
 <file path=".idx/dev.nix">
 {pkgs}: {
@@ -520,25 +1191,6 @@ export default function DashboardPage() {
 }
 </file>
 
-<file path="app/lead-details/[id]/page.tsx">
-import LeadDetails from "@/components/SCFleadmanagement/lead-details"
-import Layout from "@/components/SCFleadmanagement/layout"
-
-interface LeadDetailsPageProps {
-  params: {
-    id: string
-  }
-}
-
-export default function LeadDetailsPage({ params }: LeadDetailsPageProps) {
-  return (
-    <Layout>
-      <LeadDetails leadId={params.id} />
-    </Layout>
-  )
-}
-</file>
-
 <file path="app/login/page.tsx">
 import LoginForm from "@/components/SCFleadmanagement/login-form"
 
@@ -702,32 +1354,6 @@ export default function ReportsPage() {
   return (
     <Layout>
       <Reports />
-    </Layout>
-  )
-}
-</file>
-
-<file path="app/rm-inbox/page.tsx">
-import RMInbox from "@/components/SCFleadmanagement/rm-inbox"
-import Layout from "@/components/SCFleadmanagement/layout"
-
-export default function RMInboxPage() {
-  return (
-    <Layout>
-      <RMInbox />
-    </Layout>
-  )
-}
-</file>
-
-<file path="app/rm-leads/page.tsx">
-import RMLeads from "@/components/SCFleadmanagement/rm-leads"
-import Layout from "@/components/SCFleadmanagement/layout"
-
-export default function RMLeadsPage() {
-  return (
-    <Layout>
-      <RMLeads />
     </Layout>
   )
 }
@@ -7379,13 +8005,54 @@ async function migrateLeadCommunications() {
   }
 }
 
-// Check if we're in a browser environment
-const isBrowser = typeof window !== 'undefined';
+// Better browser detection with fallbacks
+const isBrowser = () => {
+  try {
+    return typeof window !== 'undefined' && 
+           typeof window.document !== 'undefined' && 
+           typeof window.indexedDB !== 'undefined';
+  } catch (e) {
+    return false;
+  }
+};
+
+// Add a default AI prompt configuration
+export async function initializeAIPromptsIfEmpty() {
+  try {
+    if (!isBrowser()) return;
+    
+    const count = await db.ai_prompts_master.count();
+    
+    if (count === 0) {
+      console.log("No AI prompt configurations found, adding default configuration...");
+      
+      const now = new Date().toISOString();
+      
+      await db.ai_prompts_master.add({
+        id: crypto.randomUUID(),
+        configName: "Default OpenAI Config",
+        serviceProvider: "OpenAI",
+        apiKey: "", // Will need to be filled in by the user
+        apiEndpoint: "https://api.openai.com/v1",
+        defaultModel: "gpt-3.5-turbo",
+        promptSummary: "Please provide a concise 2-3 word summary of this RM reply: {reply_text}",
+        promptNextAction: "Based on this RM reply, determine if the dealer is interested in a follow-up or not. Reply with ONLY \"FollowUp\" if follow-up is needed, or \"Dealer Not Interested\" if the dealer is expressing disinterest or rejection: {reply_text}",
+        isActive: true,
+        createdAt: now,
+        updatedAt: now
+      });
+      
+      console.log("Default AI prompt configuration added.");
+    }
+  } catch (error) {
+    console.error("Error initializing AI prompts:", error);
+  }
+}
 
 // Initialize all database schemas
 export async function initializeDatabase() {
   // Skip initialization on server side
-  if (!isBrowser) {
+  if (!isBrowser()) {
     console.log('Skipping database initialization on server side');
     return;
   }
@@ -7401,7 +8068,7 @@ export async function initializeDatabase() {
     await db.open();
     console.log(`Database opened. Current version: ${db.verno}`);
     
-    // If we've upgraded to version 5, migrate the data
+    // If we've upgraded to version 5 or higher, migrate the data
     if (db.verno >= 5) {
       console.log('Database schema is up to date (version 5 or higher)');
       
@@ -7421,17 +8088,46 @@ export async function initializeDatabase() {
       console.warn(`Database schema is not at version 5 (current: ${db.verno}). Some features may not work correctly.`);
     }
     
+    // Initialize the AI prompts if we're at version 6 or higher
+    if (db.verno >= 6) {
+      console.log('AI prompts feature available (version 6+)');
+      await initializeAIPromptsIfEmpty();
+    }
+    
     console.log('Database initialization complete.');
   } catch (error) {
     console.error('Error initializing database:', error);
   }
 }
 
+// Wrap database operations in error handlers
+export function safeDbOperation<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
+  return new Promise<T>(async (resolve) => {
+    if (!isBrowser()) {
+      resolve(fallback);
+      return;
+    }
+    
+    try {
+      const result = await operation();
+      resolve(result);
+    } catch (error) {
+      console.error('Database operation failed:', error);
+      resolve(fallback);
+    }
+  });
+}
+
 // Export a function to be called on app startup
 export default function setupDatabase() {
-  // Only run in browser
-  if (isBrowser) {
-    initializeDatabase().catch(console.error);
+  // Safely initialize the database
+  if (isBrowser()) {
+    // Use setTimeout to defer initialization until after the component is mounted
+    setTimeout(() => {
+      initializeDatabase().catch(error => {
+        console.error('Database initialization failed:', error);
+      });
+    }, 0);
   } else {
     console.log('Database setup skipped (server-side)');
   }
@@ -7459,6 +8155,7 @@ export function downloadTemplate(headers: string[], filename: string) {
 
 <file path="lib/lead-utils.ts">
 import db from './db';
+import { safeDbOperation } from './db-init';
 
 /**
  * Function to get an RM's email address from their ADID
@@ -7485,9 +8182,9 @@ export async function getEmailFromRmAdid(rmAdid: string): Promise<string> {
       .first();
     
     if (rmRecord) {
-      // If we have an RM record but no email, create a dummy email for demo purposes
-      const rmName = rmRecord.rmName.replace(/\s+/g, '.').toLowerCase();
-      return `${rmName}@example.com`;
+      // Use the RM name or ID to construct an email
+      const rmEmail = `${rmRecord.rmName.toLowerCase().replace(/\s+/g, '.')}@example.com`;
+      return rmEmail;
     }
     
     // If all else fails, generate a fallback email using the ADID
@@ -7576,85 +8273,86 @@ SCF Lead Management System
  * Function to get all emails for a specific RM
  * @param rmAdid RM's ADID or a part of the email address
  */
-export async function getRMInboxEmails(rmAdid: string): Promise<any[]> {
+export async function getRMInboxEmails(rmAdid: string) {
   try {
-    console.log(`[RM Inbox] Looking up emails for RM: ${rmAdid}`);
+    console.log(`[getRMInboxEmails] Getting emails for RM: ${rmAdid}`);
     
-    // First, get the RM's email
-    const rmEmail = await getEmailFromRmAdid(rmAdid);
-    console.log(`[RM Inbox] RM email address: ${rmEmail}`);
+    // Get all leads assigned to this RM safely
+    const processedLeads = await safeDbOperation(
+      () => db.processed_leads
+        .where('assignedRmAdid')
+        .equals(rmAdid)
+        .toArray(),
+      []
+    );
     
-    // Log all lead communications for debugging
-    const allComms = await db.table('lead_communications').toArray();
-    console.log(`[RM Inbox] Total communications in database: ${allComms.length}`);
-    allComms.forEach((comm, index) => {
-      console.log(`[RM Inbox] Communication ${index+1}:`, {
-        id: comm.id,
-        recipientAdidOrEmail: comm.recipientAdidOrEmail || comm.rmEmail,
-        processedLeadId: comm.processedLeadId || comm.leadId,
-        communicationType: comm.communicationType || comm.messageType,
-        senderType: comm.senderType || comm.sender
-      });
-    });
+    console.log(`[getRMInboxEmails] Found ${processedLeads.length} processed leads assigned to RM`);
     
-    // Search for communications where this RM is the recipient
-    let communications = await db.table('lead_communications')
-      .filter(comm => {
-        // Check different combinations to find emails for this RM
-        // Check recipient email contains the RM's email (case insensitive)
-        const recipientEmailMatch = comm.recipientAdidOrEmail && 
-          typeof comm.recipientAdidOrEmail === 'string' && 
-          comm.recipientAdidOrEmail.toLowerCase().includes(rmEmail.toLowerCase());
-        
-        // Check old schema format
-        const oldSchemaMatch = comm.rmEmail === rmEmail && comm.recipient === 'rm';
-        
-        // Check if recipient contains the ADID
-        const recipientAdidMatch = comm.recipientAdidOrEmail && 
-          typeof comm.recipientAdidOrEmail === 'string' && 
-          comm.recipientAdidOrEmail.toLowerCase().includes(rmAdid.toLowerCase());
-        
-        // Check direct equality of recipientAdidOrEmail with rmAdid
-        const directAdidMatch = comm.recipientAdidOrEmail === rmAdid;
-        
-        // Check if the sender is the RM - in case of replies
-        const isSender = (comm.senderAdidOrEmail === rmEmail || 
-                         (comm.sender === 'rm' && comm.rmEmail === rmEmail));
-        
-        // Log this communication's match details for debugging
-        console.log(`[RM Inbox] Checking comm ${comm.id}:`, {
-          recipientEmailMatch,
-          oldSchemaMatch,
-          recipientAdidMatch,
-          directAdidMatch,
-          isSender,
-          recipientValue: comm.recipientAdidOrEmail || comm.recipient
-        });
-        
-        // Return true if any match condition is met
-        return recipientEmailMatch || oldSchemaMatch || recipientAdidMatch || directAdidMatch || isSender;
-      })
-      .toArray();
+    // Array to hold all lead communications
+    const allCommunications = [];
     
-    // Sort by timestamp (newest first)
-    communications.sort((a, b) => 
+    // Get communications for each lead safely
+    for (const lead of processedLeads) {
+      try {
+        // Get communications for this lead safely
+        const communications = await safeDbOperation(
+          () => db.lead_communications
+            .where('processedLeadId')
+            .equals(lead.id)
+            .toArray(),
+          []
+        );
+        
+        // Add to the all communications array
+        allCommunications.push(...communications);
+      } catch (error) {
+        console.error(`[getRMInboxEmails] Error getting communications for lead ${lead.id}:`, error);
+      }
+    }
+    
+    // Get old-style communications assigned directly to RM email
+    try {
+      // Try to find RM email from RMBranch table safely
+      let rmEmail = null;
+      const rmRecord = await safeDbOperation(
+        () => db.rm_branch
+          .where('rmId')
+          .equals(rmAdid)
+          .first(),
+        null
+      );
+      
+      if (rmRecord) {
+        // Use the RM name or ID to construct an email
+        rmEmail = `${rmRecord.rmName.toLowerCase().replace(/\s+/g, '.')}@example.com`;
+      } else {
+        // Default to a pattern based on RM ID
+        rmEmail = `${rmAdid.toLowerCase()}@example.com`;
+      }
+      
+      // Get old-style communications safely
+      const oldStyleComms = await safeDbOperation(
+        () => db.lead_communications
+          .where('rmEmail')
+          .equals(rmEmail)
+          .toArray(),
+        []
+      );
+      
+      // Add to the all communications array
+      allCommunications.push(...oldStyleComms);
+    } catch (error) {
+      console.error('[getRMInboxEmails] Error getting old-style communications:', error);
+    }
+    
+    // Sort all communications by timestamp (newest first)
+    allCommunications.sort((a, b) => 
       new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
     
-    console.log(`[RM Inbox] Found ${communications.length} emails for RM ${rmAdid} (${rmEmail})`);
-    if (communications.length > 0) {
-      communications.forEach((comm, i) => {
-        console.log(`[RM Inbox] Found email ${i+1}:`, {
-          id: comm.id,
-          title: comm.title,
-          timestamp: comm.timestamp
-        });
-      });
-    }
-    
-    return communications;
+    return allCommunications;
   } catch (error) {
-    console.error(`[RM Inbox] Error fetching emails for RM ${rmAdid}:`, error);
+    console.error('[getRMInboxEmails] Error getting RM inbox emails:', error);
     return [];
   }
 }
@@ -7934,6 +8632,7 @@ export interface LeadCommunication {
   ccEmails?: string[]; // Array of emails for CC, if applicable
   aiSummary?: string; // AI-generated summary of RM replies or other content
   aiDecision?: string; // AI's suggested next step or assessment outcome
+  aiTokensConsumed?: number;
   attachments?: { name: string; size: string; url?: string; type: string }[]; // Array of attachment objects
   relatedWorkflowStateId?: string; // Optional FK to LeadWorkflowState.id
 }
@@ -8045,6 +8744,7 @@ export async function createLeadCommunication(
     ccEmails: data.ccEmails || [],
     aiSummary: data.aiSummary,
     aiDecision: data.aiDecision,
+    aiTokensConsumed: data.aiTokensConsumed,
     attachments: data.attachments || [],
     relatedWorkflowStateId: data.relatedWorkflowStateId
   };
@@ -8172,7 +8872,7 @@ export async function createLeadAssignmentCommunication(
 }
 
 /**
- * Creates an RM reply communication
+ * Creates a new RM reply communication
  */
 export async function createRMReplyCommunication(
   processedLeadId: string,
@@ -8180,20 +8880,67 @@ export async function createRMReplyCommunication(
   replyContent: string,
   aiSummary?: string,
   aiDecision?: string,
+  aiTokensConsumed?: number,
   attachments?: { name: string; size: string; url?: string; type: string }[]
 ): Promise<LeadCommunication> {
-  return createLeadCommunication({
-    processedLeadId,
-    communicationType: 'RMReply',
-    title: 'RM Reply Received',
-    description: replyContent,
-    senderType: 'RM',
-    senderAdidOrEmail: rmEmail,
-    recipientAdidOrEmail: 'system@scfleadmgmt.com',
-    aiSummary,
-    aiDecision,
-    attachments
-  });
+  try {
+    // Create the communication record
+    const communication = await createLeadCommunication({
+      processedLeadId,
+      communicationType: 'RMReply',
+      title: 'RM Reply Received',
+      description: replyContent,
+      senderType: 'RM',
+      senderAdidOrEmail: rmEmail,
+      recipientAdidOrEmail: 'system@scfleadmgmt.com',
+      aiSummary,
+      aiDecision,
+      aiTokensConsumed,
+      attachments
+    });
+
+    // Get the workflow state to update it
+    const workflowState = await getLeadWorkflowStateByProcessedLeadId(processedLeadId);
+    
+    if (workflowState) {
+      const now = new Date().toISOString();
+      let updates: Partial<LeadWorkflowState> = {
+        lastCommunicationTimestamp: now,
+        updatedAt: now
+      };
+      
+      // If AI decision is available, update the workflow state accordingly
+      if (aiDecision) {
+        let newStage = workflowState.currentStage;
+        
+        // Map AI decision to workflow stage
+        if (aiDecision === 'Dealer Not Interested') {
+          newStage = 'Dropped';
+          updates.droppedReason = 'AI: Dealer Not Interested';
+        } else if (aiDecision === 'FollowUp') {
+          newStage = 'RM_AwaitingReply';
+          // Set next follow-up timestamp to 2 days from now
+          const followUpDate = new Date();
+          followUpDate.setDate(followUpDate.getDate() + 2);
+          updates.nextFollowUpTimestamp = followUpDate.toISOString();
+        }
+        
+        // Only update stage if it changed
+        if (newStage !== workflowState.currentStage) {
+          updates.currentStage = newStage;
+          updates.lastStageChangeTimestamp = now;
+        }
+      }
+      
+      // Update the workflow state
+      await updateLeadWorkflowState(workflowState.id, updates);
+    }
+    
+    return communication;
+  } catch (error) {
+    console.error('Failed to create RM reply communication:', error);
+    throw error;
+  }
 }
 
 /**
@@ -8371,356 +9118,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-</file>
-
-<file path="BRD.txt">
-# BUSINESS REQUIREMENTS DOCUMENT (BRD)
-# SCF LEAD MANAGEMENT APPLICATION
-
-## 1. INTRODUCTION
-
-### 1.1 Purpose
-This document outlines the business requirements for the Supply Chain Finance (SCF) Lead Management application designed to streamline the entire lead management process for the bank's supply chain finance division.
-
-### 1.2 Scope
-The SCF Lead Management application will facilitate lead capture, processing, tracking, assignment, and conversion. It will automate key workflows, provide role-based access, generate automated communications, and deliver analytics for decision-making.
-
-### 1.3 Business Objectives
-- Improve lead conversion rates through efficient tracking and follow-up
-- Reduce lead processing time through automation and streamlined workflows
-- Enhance communication between relationship managers (RMs) and product sales managers (PSMs)
-- Provide comprehensive analytics for management decision-making
-- Ensure compliance with banking standards and regulations
-
-## 2. USER ROLES AND RESPONSIBILITIES
-
-### 2.1 Administrator
-- Configure system settings and master data
-- Manage user access and permissions
-- View all leads and reports
-- Configure escalation rules and AI templates
-- Access all modules and features
-- Generate system-wide reports
-
-### 2.2 Relationship Manager (RM)
-- Access and manage assigned leads
-- Update lead status and information
-- Generate and view lead-specific reports
-- Communicate with clients and PSMs
-- Access only their assigned leads and general reports
-
-## 3. CORE MODULES AND FUNCTIONALITY
-
-### 3.1 Authentication and Access Control
-- Secure login process with email and password
-- Role-based access control (Admin, RM)
-- Session management with automatic timeout
-- Access restrictions based on user role
-- Dashboard customization based on user role
-
-### 3.2 Dashboard Module
-- Overview of key metrics and pending actions
-- Real-time conversion metrics and lead status distribution
-- Quick access to recent leads and notifications
-- Role-specific metric highlighting
-- Visual representation of lead status and conversion rates
-
-### 3.3 Lead Management
-
-#### 3.3.1 New Leads
-- Capture new lead information including:
-  * Dealer details (name, contact, location)
-  * Anchor details (name, relationship)
-  * Business information (turnover, products)
-  * Initial requirements and needs
-- Assign leads to appropriate RMs based on:
-  * Geographic location
-  * Business sector expertise
-  * Current workload
-  * Hierarchy mapping
-- Validate lead data for completeness and accuracy
-- Record lead source information for analytics
-
-#### 3.3.2 RM Leads
-- Display leads assigned to each RM
-- Allow RMs to update lead status and progress
-- Enable adding notes and updates to lead records
-- View lead history and interaction timeline
-- Filter leads by status, priority, and timeframe
-- Sort leads by various parameters
-
-#### 3.3.3 PSM Leads
-- Display leads assigned for PSM review
-- PSM validation and approval workflow
-- Documentation verification process
-- Feedback mechanism between RM and PSM
-- Timeline for PSM actions and responses
-
-### 3.4 Lead Status Tracking
-- Pre-defined lead statuses:
-  * New
-  * Contacted
-  * Qualified
-  * Documentation Pending
-  * Under Review
-  * Approved
-  * Rejected
-  * Converted
-- Status update timestamps and user tracking
-- Automated notifications on status changes
-- SLA tracking for each status phase
-
-### 3.5 Master Module Management
-
-#### 3.5.1 Pincode-Branch Master
-- Mapping of postal codes to branch offices
-- Automatic lead routing based on pincode
-- Branch contact information and operating hours
-- Branch manager and key personnel information
-- Service area boundaries and exceptions
-
-#### 3.5.2 RM-Branch Master
-- Assignment of RMs to specific branches
-- RM contact details and availability
-- Expertise areas and specialization
-- Performance metrics and allocation limits
-- Backup RM assignments for leaves/absences
-
-#### 3.5.3 Hierarchy Master
-- Organizational structure definition
-- Reporting line configuration
-- Approval workflows based on hierarchy
-- Escalation paths for different scenarios
-- Authority limits by hierarchical level
-
-#### 3.5.4 Anchor Master
-- Maintain anchor company details
-- Credit parameters and limits
-- Relationship history and status
-- Approved dealer categories
-- Special terms and conditions
-
-#### 3.5.5 Templates Master
-- Email and communication templates
-- Document templates for client communication
-- Form templates for data collection
-- Standardized response templates
-- Compliance-approved language options
-
-### 3.6 Escalation Management
-
-#### 3.6.1 Escalation Rules
-- Define time-based escalation triggers
-- Configure escalation paths by anchor
-- Set conditions for automatic escalation:
-  * No response within specified timeframe
-  * Documentation pending beyond deadline
-  * Multiple status changes without progress
-  * Client complaints or urgent requests
-- Different levels of escalation (RM Manager, PSM, Admin)
-- Notification protocols for each escalation level
-
-#### 3.6.2 Flag and Prioritization
-- Lead flagging for special attention
-- Priority levels (High, Medium, Low)
-- Automatic flag based on predefined criteria
-- Manual flag by authorized personnel
-- Flag visibility across relevant teams
-
-### 3.7 AI and Automation
-
-#### 3.7.1 AI Rules
-- Configure rules for AI-generated content
-- Define contexts for automated email generation
-- Set parameters for lead summarization
-- Configure confidence thresholds for automation
-- Approval workflows for AI-generated content
-
-#### 3.7.2 Email Automation
-- Trigger-based email generation
-- Personalized email content based on lead data
-- Scheduled follow-ups and reminders
-- Email performance tracking
-- Template selection based on lead status
-
-#### 3.7.3 Lead Summarization
-- AI-powered analysis of lead documentation
-- Extraction of key business metrics
-- Risk assessment summary
-- Opportunity highlight generation
-- Action recommendation based on lead profile
-
-### 3.8 Reporting Module
-
-#### 3.8.1 Standard Reports
-- Lead Status Report
-- Application Status Report
-- Rejected Leads Report
-- Lead Aging Report
-- RM Performance Report
-- Conversion Metrics Report
-
-#### 3.8.2 Report Generation
-- Date range selection for report data
-- Multiple export formats (XLSX, CSV, PDF)
-- Scheduled report generation
-- Filtered reports based on various parameters
-- Role-specific report access
-
-#### 3.8.3 Lead Summary
-- Overview of all leads in the system
-- Status distribution visualization
-- Conversion metrics by stage
-- Time-in-stage analytics
-- Lead source effectiveness
-
-#### 3.8.4 Application Summary
-- Processing timeline metrics
-- Bottleneck identification
-- Approval/rejection ratios
-- Documentation completion rates
-- Application quality metrics
-
-## 4. BUSINESS WORKFLOWS
-
-### 4.1 New Lead Capture and Assignment
-1. New lead is entered into the system
-2. System validates lead data for completeness
-3. Pincode is used to identify appropriate branch
-4. System identifies eligible RMs based on branch, workload, and expertise
-5. Lead is assigned to the most suitable RM
-6. Notification is sent to the assigned RM
-7. Initial lead status is set to "New"
-
-### 4.2 Lead Processing by RM
-1. RM reviews assigned lead details
-2. Initial contact is made with the prospect (status: "Contacted")
-3. RM qualifies the lead based on criteria (status: "Qualified" or "Rejected")
-4. For qualified leads, RM requests necessary documentation
-5. RM updates lead record with notes and next actions
-6. System tracks time-in-status for SLA compliance
-7. Automated reminders are sent for pending actions
-
-### 4.3 Documentation and Review
-1. RM collects required documentation from prospect
-2. Documentation completeness is verified
-3. Lead status is updated to "Documentation Pending" or "Under Review"
-4. For complete documentation, lead is sent to PSM for review
-5. PSM reviews and provides feedback or approval
-6. If documentation is incomplete, automated reminders are sent
-7. If review period exceeds threshold, escalation is triggered
-
-### 4.4 Escalation Process
-1. System monitors lead status and time-in-status
-2. When predefined thresholds are exceeded, escalation is triggered
-3. First-level escalation goes to RM's direct supervisor
-4. Second-level escalation goes to PSM
-5. Third-level escalation goes to Admin
-6. All escalations are tracked and require resolution action
-7. Escalation history is maintained for audit purposes
-
-### 4.5 Approval/Rejection
-1. PSM reviews the lead and complete documentation
-2. Decision is made to approve or reject the application
-3. For approved applications, status changes to "Approved"
-4. For rejected applications, reason code is mandatory
-5. RM is notified of the decision
-6. Client communication is generated based on decision
-7. Next steps are defined based on decision outcome
-
-### 4.6 Lead Conversion
-1. For approved leads, RM coordinates completion steps
-2. Client onboarding process is initiated
-3. Lead status is updated to "Converted"
-4. Conversion metrics are captured for reporting
-5. RM performance metrics are updated
-6. Success case documentation for future reference
-7. Client is moved to active client database
-
-### 4.7 Report Generation and Analysis
-1. User selects required report type
-2. Date range and filters are specified
-3. System generates report with relevant data
-4. Report is available for export in selected format
-5. Analytics highlight key insights and trends
-6. Management reviews performance metrics
-7. Strategic decisions are informed by report insights
-
-## 5. BUSINESS RULES
-
-### 5.1 Lead Assignment
-- Leads must be assigned within 1 business hour of entry
-- Maximum leads per RM determined by role and seniority
-- Geographic matching takes precedence in assignment
-- Expertise matching is secondary priority
-- Workload balancing is final consideration
-- Manual override by Admin is permitted with reason code
-
-### 5.2 SLA Requirements
-- Initial contact must be made within 24 hours
-- Qualification decision within 3 business days
-- Documentation collection within 7 business days
-- PSM review within 5 business days
-- Final decision within 15 business days of complete documentation
-- Client notification within 1 business day of decision
-
-### 5.3 Escalation Triggers
-- No contact attempt within 24 hours (Level 1)
-- No status update within 3 business days (Level 1)
-- No qualification decision within 5 business days (Level 2)
-- Documentation pending beyond 10 business days (Level 2)
-- No PSM review within 7 business days (Level 3)
-- Multiple client complaints or urgent flag (Immediate Level 3)
-
-### 5.4 Data Validation
-- All mandatory fields must be completed
-- Contact information must be in valid format
-- Business metrics must be within acceptable ranges
-- Duplicate lead detection based on multiple criteria
-- History check for previously rejected applications
-- Compliance screening for restricted sectors or entities
-
-### 5.5 Approval Criteria
-- Documentation completeness and accuracy
-- Business viability assessment
-- Credit risk evaluation
-- Relationship potential calculation
-- Regulatory compliance verification
-- Policy alignment confirmation
-
-## 6. FUNCTIONAL REQUIREMENTS
-
-### 6.1 User Interface
-- Intuitive dashboard with role-specific views
-- Responsive design for various devices
-- Accessible interface following standards
-- Consistent navigation and interaction patterns
-- Clear status indicators and action prompts
-- Search and filter capabilities throughout
-
-### 6.2 Notifications
-- Email notifications for key events
-- In-app notification center
-- Configurable notification preferences
-- Escalation alerts with priority indicators
-- SLA breach warnings and reminders
-- Action-required notifications
-
-### 6.3 Data Management
-- Secure data storage and transmission
-- Regular backup and recovery
-- Data retention policy compliance
-- Audit trail for all data changes
-- Data export and archive capabilities
-- Data quality monitoring
-
-### 6.4 Integration Points
-- Two-factor authentication system
-- Email communication system
-- Document management system
-- Customer relationship management (CRM)
-- Core banking system
-- Compliance verification systems
 </file>
 
 <file path="components.json">
@@ -9135,6 +9532,79 @@ export default function EscalationRules() {
         </CardContent>
       </Card>
     </main>
+  )
+}
+</file>
+
+<file path="app/lead-details/[id]/page.tsx">
+"use client"
+
+import dynamic from 'next/dynamic'
+import Layout from "@/components/SCFleadmanagement/layout"
+import { Suspense } from "react"
+import { useParams } from "next/navigation"
+
+// Use dynamic import with SSR disabled to prevent hydration issues
+const LeadDetails = dynamic(() => import("@/components/SCFleadmanagement/lead-details"), {
+  ssr: false,
+})
+
+export default function LeadDetailsPage() {
+  const params = useParams();
+  const leadId = params.id as string;
+
+  return (
+    <Layout>
+      <Suspense fallback={<div>Loading lead details...</div>}>
+        <LeadDetails leadId={leadId} />
+      </Suspense>
+    </Layout>
+  )
+}
+</file>
+
+<file path="app/rm-inbox/page.tsx">
+"use client"
+
+import dynamic from 'next/dynamic'
+import Layout from "@/components/SCFleadmanagement/layout"
+import { Suspense } from "react"
+
+// Use dynamic import with SSR disabled to prevent hydration issues
+const RMInbox = dynamic(() => import("@/components/SCFleadmanagement/rm-inbox"), {
+  ssr: false,
+})
+
+export default function RMInboxPage() {
+  return (
+    <Layout>
+      <Suspense fallback={<div>Loading inbox...</div>}>
+        <RMInbox />
+      </Suspense>
+    </Layout>
+  )
+}
+</file>
+
+<file path="app/rm-leads/page.tsx">
+"use client"
+
+import dynamic from 'next/dynamic'
+import Layout from "@/components/SCFleadmanagement/layout"
+import { Suspense } from "react"
+
+// Use dynamic import with SSR disabled to prevent hydration issues
+const RMLeads = dynamic(() => import("@/components/SCFleadmanagement/rm-leads"), {
+  ssr: false,
+})
+
+export default function RMLeadsPage() {
+  return (
+    <Layout>
+      <Suspense fallback={<div>Loading leads...</div>}>
+        <RMLeads />
+      </Suspense>
+    </Layout>
   )
 }
 </file>
@@ -9615,6 +10085,18 @@ import Link from "next/link"
 import { format } from "date-fns"
 import { getRMInboxEmails } from "@/lib/lead-utils"
 import { createRMReplyCommunication } from "@/lib/lead-workflow"
+import { getAiAnalysisForReply } from "@/lib/ai-service"
+import { safeDbOperation } from "@/lib/db-init"
+
+// Check if we're in a browser environment safely
+const isBrowser = () => {
+  try {
+    return typeof window !== 'undefined' && 
+           typeof window.document !== 'undefined';
+  } catch (e) {
+    return false;
+  }
+};
 
 export default function RMInbox() {
   const { userEmail, user } = useAuth()
@@ -9623,9 +10105,19 @@ export default function RMInbox() {
   const [error, setError] = useState<string | null>(null)
   const [expandedMessages, setExpandedMessages] = useState<Record<string, boolean>>({})
   const [replyTexts, setReplyTexts] = useState<Record<string, string>>({})
+  const [submittingIds, setSubmittingIds] = useState<Record<string, boolean>>({})
+  const [mounted, setMounted] = useState(false)
+
+  // Set mounted flag on client side
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Fetch communications for the logged-in RM
   useEffect(() => {
+    // Skip fetching on server-side or if not mounted
+    if (!isBrowser() || !mounted) return;
+    
     async function fetchCommunications() {
       if (!userEmail) return;
 
@@ -9640,8 +10132,11 @@ export default function RMInbox() {
         const rmAdid = user?.id || "RM1";
         console.log(`[RM Inbox Component] Using RM ADID: ${rmAdid}`);
         
-        // Use the utility function to get inbox emails
-        const inboxEmails = await getRMInboxEmails(rmAdid);
+        // Use the utility function to get inbox emails safely
+        const inboxEmails = await safeDbOperation(
+          () => getRMInboxEmails(rmAdid),
+          [] // Empty array as fallback
+        );
         
         console.log(`[RM Inbox Component] Retrieved ${inboxEmails.length} emails`);
         
@@ -9655,7 +10150,20 @@ export default function RMInbox() {
     }
 
     fetchCommunications();
-  }, [userEmail, user]);
+  }, [userEmail, user, mounted]);
+
+  // Skip rendering until mounted to prevent hydration mismatch
+  if (!mounted && isBrowser()) {
+    return (
+      <div className="p-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/3"></div>
+          <div className="h-24 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="h-24 bg-gray-200 dark:bg-gray-700 rounded"></div>
+        </div>
+      </div>
+    );
+  }
 
   // Toggle message expansion
   const toggleMessageExpand = (id: string) => {
@@ -9679,6 +10187,7 @@ export default function RMInbox() {
     
     try {
       console.log("[RM Inbox Component] Submitting reply to:", comm);
+      setIsSubmitting(comm.id, true);
       
       // Get the processed lead ID (from old or new schema)
       const processedLeadId = comm.processedLeadId || comm.leadId;
@@ -9689,11 +10198,33 @@ export default function RMInbox() {
       
       console.log(`[RM Inbox Component] Creating reply for lead: ${processedLeadId}`);
       
+      // Get AI analysis for the reply text
+      let aiSummary, aiDecision, aiTokensConsumed;
+      try {
+        const aiAnalysis = await getAiAnalysisForReply(replyTexts[comm.id]);
+        if (aiAnalysis) {
+          aiSummary = aiAnalysis.summary;
+          aiDecision = aiAnalysis.nextActionPrediction;
+          aiTokensConsumed = aiAnalysis.tokensConsumed;
+          console.log("[RM Inbox Component] AI Analysis:", {
+            summary: aiSummary,
+            decision: aiDecision,
+            tokens: aiTokensConsumed
+          });
+        }
+      } catch (aiError) {
+        console.error("[RM Inbox Component] Error getting AI analysis:", aiError);
+        // Continue without AI analysis if it fails
+      }
+      
       // Use the lead workflow function to create a reply
       const reply = await createRMReplyCommunication(
         processedLeadId,
         userEmail,
-        replyTexts[comm.id]
+        replyTexts[comm.id],
+        aiSummary,
+        aiDecision,
+        aiTokensConsumed
       );
       
       console.log("[RM Inbox Component] Reply created successfully:", reply);
@@ -9715,6 +10246,8 @@ export default function RMInbox() {
     } catch (err: any) {
       console.error("[RM Inbox Component] Error submitting reply:", err);
       setError("Failed to send your reply. Please try again.");
+    } finally {
+      setIsSubmitting(comm.id, false);
     }
   }
 
@@ -9746,6 +10279,17 @@ export default function RMInbox() {
   // Helper to get message content
   const getMessageContent = (comm: any) => 
     comm.content || comm.description || ''
+
+  // Helper to set submission status
+  const setIsSubmitting = (id: string, isSubmitting: boolean) => {
+    setSubmittingIds(prev => ({
+      ...prev,
+      [id]: isSubmitting
+    }));
+  };
+
+  // Helper to check if a reply is submitting
+  const isSubmitting = (id: string) => submittingIds[id] || false;
 
   if (loading) {
     return (
@@ -9867,12 +10411,21 @@ export default function RMInbox() {
                                 className="min-h-[100px]"
                               />
                               <Button 
-                                className="flex items-center gap-2"
-                                onClick={() => submitReply(comm)}
-                                disabled={!replyTexts[comm.id]}
+                                onClick={() => submitReply(comm)} 
+                                disabled={!replyTexts[comm.id]?.trim() || isSubmitting(comm.id)}
+                                className="flex-shrink-0"
                               >
-                                <Send className="h-4 w-4" />
-                                Send Reply
+                                {isSubmitting(comm.id) ? (
+                                  <span className="flex items-center">
+                                    <span className="h-4 w-4 mr-2 border-2 border-t-transparent border-white rounded-full animate-spin"></span>
+                                    Processing...
+                                  </span>
+                                ) : (
+                                  <>
+                                    <Send className="h-4 w-4 mr-2" />
+                                    Send Reply
+                                  </>
+                                )}
                               </Button>
                             </div>
                           )}
@@ -9885,318 +10438,6 @@ export default function RMInbox() {
             )
           })}
         </div>
-      )}
-    </div>
-  )
-}
-</file>
-
-<file path="components/SCFleadmanagement/rm-leads.tsx">
-"use client"
-
-import { useState } from "react"
-import { Eye, Edit2, Search, Filter, Download, ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { cn } from "@/lib/utils"
-import EditLeadModal from "./edit-lead-modal"
-import Link from "next/link"
-
-interface Lead {
-  id: string
-  dealerName: string
-  anchorName: string
-  rmName: string
-  lastUpdated: string
-  ageingBucket: string
-  lastActionDate: string
-  flag: "With RM" | "Escalation 1" | "Escalation 2" | "With PSM" | "Under Progress" | "Dropped"
-}
-
-const LEADS_DATA: Lead[] = [
-  {
-    id: "LD-001",
-    dealerName: "ABC Motors",
-    anchorName: "XYZ Corp",
-    rmName: "John Smith",
-    lastUpdated: "2025-03-28",
-    ageingBucket: "0-7 days",
-    lastActionDate: "2025-03-27",
-    flag: "With RM",
-  },
-  {
-    id: "LD-002",
-    dealerName: "Highway Traders",
-    anchorName: "Global Industries",
-    rmName: "Sarah Johnson",
-    lastUpdated: "2025-03-27",
-    ageingBucket: "0-7 days",
-    lastActionDate: "2025-03-26",
-    flag: "Under Progress",
-  },
-  {
-    id: "LD-003",
-    dealerName: "City Suppliers",
-    anchorName: "Metro Manufacturing",
-    rmName: "Michael Brown",
-    lastUpdated: "2025-03-26",
-    ageingBucket: "8-14 days",
-    lastActionDate: "2025-03-20",
-    flag: "With PSM",
-  },
-  {
-    id: "LD-004",
-    dealerName: "Urban Distributors",
-    anchorName: "National Enterprises",
-    rmName: "Emily Davis",
-    lastUpdated: "2025-03-25",
-    ageingBucket: "8-14 days",
-    lastActionDate: "2025-03-19",
-    flag: "Escalation 1",
-  },
-  {
-    id: "LD-005",
-    dealerName: "Prime Dealers",
-    anchorName: "United Holdings",
-    rmName: "David Wilson",
-    lastUpdated: "2025-03-24",
-    ageingBucket: "15-30 days",
-    lastActionDate: "2025-03-15",
-    flag: "Escalation 2",
-  },
-  {
-    id: "LD-006",
-    dealerName: "Sunrise Trading",
-    anchorName: "Pacific Group",
-    rmName: "Jennifer Lee",
-    lastUpdated: "2025-03-23",
-    ageingBucket: "15-30 days",
-    lastActionDate: "2025-03-10",
-    flag: "With PSM",
-  },
-  {
-    id: "LD-007",
-    dealerName: "Galaxy Merchants",
-    anchorName: "Global Industries",
-    rmName: "Robert Taylor",
-    lastUpdated: "2025-03-22",
-    ageingBucket: "31-60 days",
-    lastActionDate: "2025-02-28",
-    flag: "Dropped",
-  },
-]
-
-const flagColors = {
-  "With RM": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  "Escalation 1": "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-  "Escalation 2": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  "With PSM": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-  "Under Progress": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-  "Dropped": "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
-}
-
-export default function RMLeads() {
-  const [searchTerm, setSearchTerm] = useState("")
-  const [sortField, setSortField] = useState<keyof Lead | null>(null)
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc")
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-
-  const handleSort = (field: keyof Lead) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc")
-    } else {
-      setSortField(field)
-      setSortDirection("asc")
-    }
-  }
-
-  const filteredLeads = LEADS_DATA.filter(
-    (lead) =>
-      lead.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.dealerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.anchorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      lead.rmName.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
-
-  const sortedLeads = [...filteredLeads].sort((a, b) => {
-    if (!sortField) return 0
-
-    const aValue = a[sortField]
-    const bValue = b[sortField]
-
-    if (aValue < bValue) return sortDirection === "asc" ? -1 : 1
-    if (aValue > bValue) return sortDirection === "asc" ? 1 : -1
-    return 0
-  })
-
-  const handleEdit = (lead: Lead) => {
-    setSelectedLead(lead)
-    setIsEditModalOpen(true)
-  }
-
-  const handleCloseModal = () => {
-    setIsEditModalOpen(false)
-    setSelectedLead(null)
-  }
-
-  const SortIcon = ({ field }: { field: keyof Lead }) => {
-    if (sortField !== field) return <ArrowUpDown className="ml-1 h-4 w-4" />
-    return sortDirection === "asc" ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">RM Leads</h1>
-
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
-            <Input
-              type="search"
-              placeholder="Search leads..."
-              className="pl-9 w-full"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1">
-                <Filter className="h-4 w-4" />
-                Filter
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem>All Leads</DropdownMenuItem>
-              <DropdownMenuItem>High Priority</DropdownMenuItem>
-              <DropdownMenuItem>Medium Priority</DropdownMenuItem>
-              <DropdownMenuItem>Low Priority</DropdownMenuItem>
-              <DropdownMenuItem>With RM</DropdownMenuItem>
-              <DropdownMenuItem>Escalation 1</DropdownMenuItem>
-              <DropdownMenuItem>Escalation 2</DropdownMenuItem>
-              <DropdownMenuItem>With PSM</DropdownMenuItem>
-              <DropdownMenuItem>Under Progress</DropdownMenuItem>
-              <DropdownMenuItem>Dropped</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <Button variant="outline" size="sm" className="gap-1">
-            <Download className="h-4 w-4" />
-            Export
-          </Button>
-        </div>
-      </div>
-
-      <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 dark:border-[#1F1F23] bg-gray-50 dark:bg-[#1F1F23]">
-                <th
-                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
-                  onClick={() => handleSort("id")}
-                >
-                  <div className="flex items-center">
-                    Lead ID
-                    <SortIcon field="id" />
-                  </div>
-                </th>
-                <th
-                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
-                  onClick={() => handleSort("dealerName")}
-                >
-                  <div className="flex items-center">
-                    Dealer Name
-                    <SortIcon field="dealerName" />
-                  </div>
-                </th>
-                <th
-                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
-                  onClick={() => handleSort("anchorName")}
-                >
-                  <div className="flex items-center">
-                    Anchor Name
-                    <SortIcon field="anchorName" />
-                  </div>
-                </th>
-                <th
-                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
-                  onClick={() => handleSort("rmName")}
-                >
-                  <div className="flex items-center">
-                    RM Name
-                    <SortIcon field="rmName" />
-                  </div>
-                </th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Ageing Bucket</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Last Action Date</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Flag</th>
-                <th className="px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 dark:divide-[#1F1F23]">
-              {sortedLeads.map((lead) => (
-                <tr key={lead.id} className="hover:bg-gray-50 dark:hover:bg-[#1F1F23] transition-colors">
-                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{lead.id}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.dealerName}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.anchorName}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.rmName}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.ageingBucket}</td>
-                  <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.lastActionDate}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
-                        flagColors[lead.flag]
-                      )}
-                    >
-                      {lead.flag}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right space-x-1">
-                    <Link href={`/lead-details/${lead.id}`}>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" title="View Details">
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </Link>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      title="Edit Lead"
-                      onClick={() => handleEdit(lead)}
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-[#1F1F23]">
-          <div className="text-sm text-gray-700 dark:text-gray-300">
-            Showing <span className="font-medium">{sortedLeads.length}</span> of{" "}
-            <span className="font-medium">{LEADS_DATA.length}</span> leads
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled>
-              Previous
-            </Button>
-            <Button variant="outline" size="sm" disabled>
-              Next
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {isEditModalOpen && selectedLead && (
-        <EditLeadModal lead={selectedLead} isOpen={isEditModalOpen} onClose={handleCloseModal} />
       )}
     </div>
   )
@@ -10965,150 +11206,6 @@ export default function RMBranchMaster() {
 }
 </file>
 
-<file path="components/SCFleadmanagement/edit-lead-modal.tsx">
-"use client"
-
-import { useState } from "react"
-import { X, Upload, Plus, Trash2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-
-interface Lead {
-  id: string
-  dealerName: string
-  anchorName: string
-  rmName: string
-  lastUpdated: string
-  ageingBucket: string
-  lastActionDate: string
-  flag: "With RM" | "Escalation 1" | "Escalation 2" | "With PSM" | "Under Progress" | "Dropped"
-}
-
-interface Attachment {
-  id: string
-  name: string
-  size: string
-  type: string
-  uploadDate: string
-}
-
-interface EditLeadModalProps {
-  lead: Lead
-  isOpen: boolean
-  onClose: () => void
-}
-
-export default function EditLeadModal({ lead, isOpen, onClose }: EditLeadModalProps) {
-  const [flag, setFlag] = useState(lead.flag)
-  const [attachments, setAttachments] = useState<Attachment[]>([
-    {
-      id: "1",
-      name: "lead_proposal.pdf",
-      size: "2.4 MB",
-      type: "PDF",
-      uploadDate: "2025-03-25",
-    },
-    {
-      id: "2",
-      name: "customer_requirements.docx",
-      size: "1.8 MB",
-      type: "DOCX",
-      uploadDate: "2025-03-24",
-    },
-  ])
-
-  const handleSave = () => {
-    // Here you would typically save the changes to your backend
-    console.log("Saving lead with updated flag:", flag)
-    onClose()
-  }
-
-  const handleRemoveAttachment = (id: string) => {
-    setAttachments(attachments.filter((attachment) => attachment.id !== id))
-  }
-
-  if (!isOpen) return null
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white dark:bg-[#0F0F12] rounded-xl shadow-lg w-full max-w-2xl max-h-[90vh] overflow-hidden">
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-[#1F1F23]">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Edit Lead {lead.id}</h2>
-          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onClose}>
-            <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
-          </Button>
-        </div>
-
-        <div className="p-4 overflow-y-auto max-h-[calc(90vh-120px)]">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div>
-              <Label htmlFor="dealerName">Dealer Name</Label>
-              <Input id="dealerName" value={lead.dealerName} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
-            </div>
-            <div>
-              <Label htmlFor="anchorName">Anchor Name</Label>
-              <Input id="anchorName" value={lead.anchorName} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
-            </div>
-            <div>
-              <Label htmlFor="rmName">RM Name</Label>
-              <Input id="rmName" value={lead.rmName} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
-            </div>
-            <div>
-              <Label htmlFor="lastUpdated">Last Updated</Label>
-              <Input id="lastUpdated" value={lead.lastUpdated} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
-            </div>
-            <div>
-              <Label htmlFor="ageingBucket">Ageing Bucket</Label>
-              <Input id="ageingBucket" value={lead.ageingBucket} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
-            </div>
-            <div>
-              <Label htmlFor="lastActionDate">Last Action Date</Label>
-              <Input id="lastActionDate" value={lead.lastActionDate} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div>
-              <Label htmlFor="flag">Flag</Label>
-              <Select value={flag} onValueChange={(value: typeof flag) => setFlag(value)}>
-                <SelectTrigger id="flag">
-                  <SelectValue placeholder="Select flag" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="With RM">With RM</SelectItem>
-                  <SelectItem value="Escalation 1">Escalation 1</SelectItem>
-                  <SelectItem value="Escalation 2">Escalation 2</SelectItem>
-                  <SelectItem value="With PSM">With PSM</SelectItem>
-                  <SelectItem value="Under Progress">Under Progress</SelectItem>
-                  <SelectItem value="Dropped">Dropped</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <Label htmlFor="notes">Notes</Label>
-            <Textarea id="notes" placeholder="Add notes about this lead..." className="min-h-[100px]" />
-          </div>
-
-        </div>
-
-        <div className="flex items-center justify-end gap-2 p-4 border-t border-gray-200 dark:border-[#1F1F23]">
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave}>Save Changes</Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-</file>
-
 <file path="components/SCFleadmanagement/login-form.tsx">
 "use client"
 
@@ -11240,62 +11337,593 @@ export default function LoginForm() {
 }
 </file>
 
-<file path="components/client-side-auth-wrapper.tsx">
+<file path="components/SCFleadmanagement/rm-leads.tsx">
 "use client"
 
-import { ReactNode, useEffect } from "react"
-import RouteGuard from "./route-guard"
-import dbUtils from "@/lib/dbUtils"
+import { useState, useEffect } from "react"
+import { Eye, Edit2, Search, Filter, Download, ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { cn } from "@/lib/utils"
+import EditLeadModal from "./edit-lead-modal"
+import Link from "next/link"
+import { useAuth } from "@/components/auth-provider"
+import db from "@/lib/db"
+import { stageToFlagMap, createLeadWorkflowState } from "@/lib/lead-workflow"
+import { differenceInDays } from "date-fns"
+import { ProcessedLead, LeadWorkflowState, HierarchyMaster, RMBranch } from "@/lib/db"
+import { safeDbOperation } from "@/lib/db-init"
 
-export default function ClientSideAuthWrapper({ children }: { children: ReactNode }) {
+// Check if we're in a browser environment safely
+const isBrowser = () => {
+  try {
+    return typeof window !== 'undefined' && 
+           typeof window.document !== 'undefined';
+  } catch (e) {
+    return false;
+  }
+};
+
+interface Lead {
+  id: string
+  processedLeadId: string
+  workflowStateId: string
+  dealerName: string
+  anchorName: string
+  rmName: string
+  rmId: string
+  lastUpdated: string
+  ageingBucket: string
+  lastActionDate: string
+  flag: string
+  currentStage: string
+}
+
+const flagColors = {
+  "With RM": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
+  "Escalation 1": "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+  "Escalation 2": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  "With PSM": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
+  "Under Progress": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  "Dropped": "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
+}
+
+// Helper function to calculate ageing bucket
+const calculateAgeingBucket = (createdAt: string): string => {
+  const createdDate = new Date(createdAt);
+  const currentDate = new Date();
+  const daysDifference = differenceInDays(currentDate, createdDate);
+
+  if (daysDifference <= 7) return "0-7 days";
+  if (daysDifference <= 14) return "8-14 days";
+  if (daysDifference <= 30) return "15-30 days";
+  if (daysDifference <= 60) return "31-60 days";
+  return "60+ days";
+};
+
+export default function RMLeads() {
+  const { user, userRole } = useAuth();
+  const [searchTerm, setSearchTerm] = useState("")
+  const [sortField, setSortField] = useState<keyof Lead | null>("lastUpdated")
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc")
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [actualLeads, setActualLeads] = useState<Lead[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  // Set mounted flag on client side
   useEffect(() => {
-    // Initialize the database when the app starts
-    const initDB = async () => {
+    setMounted(true)
+  }, [])
+
+  // Fetch leads data based on user role
+  useEffect(() => {
+    // Skip fetching on server-side or if not mounted
+    if (!isBrowser() || !mounted) return;
+    
+    const fetchLeads = async () => {
+      if (!user || !userRole) return;
+      
       try {
-        await dbUtils.initializeDBIfEmpty();
-        console.log("Database initialization complete");
-      } catch (error) {
-        console.error("Error initializing database:", error);
+        setIsLoading(true);
+        setError(null);
+        
+        let processedLeads: ProcessedLead[] = [];
+        
+        // Fetch leads based on user role safely
+        if (userRole === "admin") {
+          // Admin can see all leads
+          processedLeads = await safeDbOperation(
+            () => db.processed_leads.toArray(),
+            [] // Empty array as fallback
+          );
+        } else if (userRole === "rm") {
+          // RM can only see their assigned leads
+          processedLeads = await safeDbOperation(
+            () => db.processed_leads
+              .where("assignedRmAdid")
+              .equals(user.id)
+              .toArray(),
+            [] // Empty array as fallback
+          );
+        }
+        
+        // If no leads found, set empty array
+        if (processedLeads.length === 0) {
+          setActualLeads([]);
+          setIsLoading(false);
+          return;
+        }
+        
+        // Create a map to hold RM names for efficient lookup
+        const rmNamesMap = new Map<string, string>();
+        
+        // Process each lead to get workflow state and RM name
+        const leadsPromises = processedLeads.map(async (processedLead) => {
+          try {
+            // Get workflow state for this lead safely
+            let workflowState = await safeDbOperation(
+              () => db.lead_workflow_states
+                .where("processedLeadId")
+                .equals(processedLead.id)
+                .first(),
+              undefined
+            );
+            
+            // If workflow state doesn't exist, create a default one
+            if (!workflowState) {
+              console.warn(`No workflow state found for lead ${processedLead.id}, creating a default one`);
+              try {
+                // Get PSM ADID from the assigned anchor if available
+                let psmAdid = "unknown";
+                if (processedLead.anchorNameSelected) {
+                  const anchorRecord = await safeDbOperation(
+                    () => db.anchor_master
+                      .where("anchorname")
+                      .equals(processedLead.anchorNameSelected)
+                      .first(),
+                    undefined
+                  );
+                  
+                  if (anchorRecord && anchorRecord.PSMADID) {
+                    psmAdid = anchorRecord.PSMADID;
+                  }
+                }
+                
+                // Create a new workflow state
+                workflowState = await createLeadWorkflowState(
+                  processedLead.id,
+                  processedLead.assignedRmAdid || "unassigned",
+                  psmAdid
+                );
+                
+                console.log(`Created new workflow state for lead ${processedLead.id}`);
+              } catch (err) {
+                console.error(`Failed to create workflow state for lead ${processedLead.id}:`, err);
+                return null;
+              }
+            }
+            
+            // Get RM name if not already in the map
+            let rmName = "N/A";
+            if (processedLead.assignedRmAdid) {
+              const rmId = processedLead.assignedRmAdid; // Store in a variable to avoid null
+              if (rmNamesMap.has(rmId)) {
+                rmName = rmNamesMap.get(rmId) || "N/A";
+              } else {
+                // Try to find RM in RMBranch table first safely
+                const rmRecord = await safeDbOperation(
+                  () => db.rm_branch
+                    .where("rmId")
+                    .equals(rmId)
+                    .first(),
+                  undefined
+                );
+                
+                if (rmRecord) {
+                  rmName = rmRecord.rmName;
+                  rmNamesMap.set(rmId, rmName);
+                } else {
+                  // If not found, try the HierarchyMaster table safely
+                  const hierarchyRecord = await safeDbOperation(
+                    () => db.hierarchy_master
+                      .where("empAdid")
+                      .equals(rmId)
+                      .first(),
+                    undefined
+                  );
+                  
+                  if (hierarchyRecord) {
+                    rmName = hierarchyRecord.employeeName;
+                    rmNamesMap.set(rmId, rmName);
+                  }
+                }
+              }
+            }
+            
+            // Calculate ageing bucket
+            const ageingBucket = calculateAgeingBucket(workflowState.createdAt);
+            
+            // Get the display flag from the stage
+            const displayFlag = stageToFlagMap[workflowState.currentStage] || "Under Progress";
+            
+            // Format the lastActionDate
+            let lastActionDate = "N/A";
+            if (workflowState.lastCommunicationTimestamp) {
+              try {
+                const date = new Date(workflowState.lastCommunicationTimestamp);
+                lastActionDate = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+              } catch (error) {
+                console.error("Error formatting date:", error);
+              }
+            }
+            
+            // Return the lead object with combined data
+            return {
+              id: processedLead.id,
+              processedLeadId: processedLead.id,
+              workflowStateId: workflowState.id,
+              dealerName: processedLead.originalData["Name of the Firm"] || "Unknown",
+              anchorName: processedLead.anchorNameSelected || "Unknown",
+              rmName: rmName,
+              rmId: processedLead.assignedRmAdid || "",
+              lastUpdated: workflowState.updatedAt,
+              ageingBucket: ageingBucket,
+              lastActionDate: lastActionDate,
+              flag: displayFlag,
+              currentStage: workflowState.currentStage
+            };
+          } catch (error) {
+            console.error(`Error processing lead ${processedLead.id}:`, error);
+            return null;
+          }
+        });
+        
+        // Wait for all promises to resolve and filter out null values
+        const resolvedLeads = (await Promise.all(leadsPromises)).filter(
+          (lead): lead is Lead => lead !== null
+        );
+        
+        setActualLeads(resolvedLeads);
+      } catch (err) {
+        console.error("Error fetching leads:", err);
+        setError("Failed to fetch leads. Please try again.");
+      } finally {
+        setIsLoading(false);
       }
     };
     
-    initDB();
-  }, []);
+    fetchLeads();
+  }, [user, userRole, mounted]);
+
+  // Skip rendering until mounted to prevent hydration mismatch
+  if (!mounted && isBrowser()) {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">RM Leads</h1>
+          <div className="animate-pulse h-10 w-64 bg-gray-200 dark:bg-gray-700 rounded"></div>
+        </div>
+        <div className="animate-pulse space-y-4">
+          <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="h-80 bg-gray-200 dark:bg-gray-700 rounded"></div>
+        </div>
+      </div>
+    );
+  }
+
+  const handleSort = (field: keyof Lead) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc")
+    } else {
+      setSortField(field)
+      setSortDirection("asc")
+    }
+  }
+
+  const filteredLeads = actualLeads.filter(
+    (lead) =>
+      lead.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.dealerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.anchorName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.rmName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.ageingBucket.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.flag.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  const sortedLeads = [...filteredLeads].sort((a, b) => {
+    if (!sortField) return 0
+
+    const aValue = a[sortField]
+    const bValue = b[sortField]
+
+    if (aValue < bValue) return sortDirection === "asc" ? -1 : 1
+    if (aValue > bValue) return sortDirection === "asc" ? 1 : -1
+    return 0
+  })
+
+  const handleEdit = (lead: Lead) => {
+    setSelectedLead(lead)
+    setIsEditModalOpen(true)
+  }
+
+  const handleCloseModal = () => {
+    setIsEditModalOpen(false)
+    setSelectedLead(null)
+  }
+
+  const refreshLeads = async () => {
+    // Re-trigger the useEffect by setting isLoading to true
+    setIsLoading(true);
+  };
+
+  const SortIcon = ({ field }: { field: keyof Lead }) => {
+    if (sortField !== field) return <ArrowUpDown className="ml-1 h-4 w-4" />
+    return sortDirection === "asc" ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
+  }
 
   return (
-    <RouteGuard>{children}</RouteGuard>
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">RM Leads</h1>
+
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
+            <Input
+              type="search"
+              placeholder="Search leads..."
+              className="pl-9 w-full"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1">
+                <Filter className="h-4 w-4" />
+                Filter
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => setSearchTerm("")}>All Leads</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSearchTerm("With RM")}>With RM</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSearchTerm("Escalation 1")}>Escalation 1</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSearchTerm("Escalation 2")}>Escalation 2</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSearchTerm("With PSM")}>With PSM</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSearchTerm("Under Progress")}>Under Progress</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSearchTerm("Dropped")}>Dropped</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSearchTerm("0-7 days")}>0-7 days</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSearchTerm("8-14 days")}>8-14 days</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSearchTerm("15-30 days")}>15-30 days</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSearchTerm("31-60 days")}>31-60 days</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setSearchTerm("60+ days")}>60+ days</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button variant="outline" size="sm" className="gap-1">
+            <Download className="h-4 w-4" />
+            Export
+          </Button>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 dark:border-[#1F1F23] bg-gray-50 dark:bg-[#1F1F23]">
+                <th
+                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
+                  onClick={() => handleSort("id")}
+                >
+                  <div className="flex items-center">
+                    Lead ID
+                    <SortIcon field="id" />
+                  </div>
+                </th>
+                <th
+                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
+                  onClick={() => handleSort("dealerName")}
+                >
+                  <div className="flex items-center">
+                    Dealer Name
+                    <SortIcon field="dealerName" />
+                  </div>
+                </th>
+                <th
+                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
+                  onClick={() => handleSort("anchorName")}
+                >
+                  <div className="flex items-center">
+                    Anchor Name
+                    <SortIcon field="anchorName" />
+                  </div>
+                </th>
+                <th
+                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
+                  onClick={() => handleSort("rmName")}
+                >
+                  <div className="flex items-center">
+                    RM Name
+                    <SortIcon field="rmName" />
+                  </div>
+                </th>
+                <th 
+                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
+                  onClick={() => handleSort("ageingBucket")}
+                >
+                  <div className="flex items-center">
+                    Ageing Bucket
+                    <SortIcon field="ageingBucket" />
+                  </div>
+                </th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Last Action Date</th>
+                <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Flag</th>
+                <th className="px-4 py-3 text-right font-medium text-gray-500 dark:text-gray-400">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-[#1F1F23]">
+              {isLoading ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
+                    Loading leads...
+                  </td>
+                </tr>
+              ) : error ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center text-red-500 dark:text-red-400">
+                    {error}
+                  </td>
+                </tr>
+              ) : sortedLeads.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
+                    No leads found.
+                  </td>
+                </tr>
+              ) : (
+                sortedLeads.map((lead) => (
+                  <tr key={lead.id} className="hover:bg-gray-50 dark:hover:bg-[#1F1F23] transition-colors">
+                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{lead.id}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.dealerName}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.anchorName}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.rmName}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.ageingBucket}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.lastActionDate}</td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
+                          flagColors[lead.flag as keyof typeof flagColors] || "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300"
+                        )}
+                      >
+                        {lead.flag}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right space-x-1">
+                      <Link href={`/lead-details/${lead.id}`} className="inline-flex">
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                          <Eye className="h-4 w-4" />
+                          <span className="sr-only">View Details</span>
+                        </Button>
+                      </Link>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handleEdit(lead)}>
+                        <Edit2 className="h-4 w-4" />
+                        <span className="sr-only">Edit</span>
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {selectedLead && (
+        <EditLeadModal 
+          lead={selectedLead} 
+          isOpen={isEditModalOpen} 
+          onClose={handleCloseModal} 
+          onSave={refreshLeads}
+        />
+      )}
+    </div>
   )
 }
 </file>
 
+<file path="components/client-side-auth-wrapper.tsx">
+"use client"
+
+import { useEffect, useState } from "react"
+import { useAuth } from "./auth-provider"
+import RouteGuard from "./route-guard"
+import { initializeDatabase } from "@/lib/db-init"
+
+export default function ClientSideAuthWrapper({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated } = useAuth()
+  const [dbInitialized, setDbInitialized] = useState(false)
+  const [dbError, setDbError] = useState<string | null>(null)
+
+  // Initialize the database
+  useEffect(() => {
+    async function initDb() {
+      try {
+        await initializeDatabase()
+        setDbInitialized(true)
+        console.log('Database initialized successfully')
+      } catch (err: any) {
+        console.error('Error initializing database:', err)
+        setDbError(err?.message || 'Failed to initialize database')
+      }
+    }
+
+    initDb()
+  }, [])
+
+  // Check if DB initialization failed
+  if (dbError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center p-4 text-center">
+        <div className="rounded-lg bg-red-50 p-6 dark:bg-red-900/30">
+          <h2 className="mb-2 text-lg font-semibold text-red-700 dark:text-red-300">
+            Database Initialization Error
+          </h2>
+          <p className="text-red-600 dark:text-red-400">{dbError}</p>
+          <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
+            Please try refreshing the page or clearing your browser cache.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 rounded-md bg-red-100 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-200 dark:bg-red-800/30 dark:text-red-300 dark:hover:bg-red-800/50"
+          >
+            Refresh Page
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Use the existing RouteGuard for auth protection
+  return <RouteGuard>{children}</RouteGuard>
+}
+</file>
+
 <file path="app/layout.tsx">
+import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/components/auth-provider"
 import ClientSideAuthWrapper from "@/components/client-side-auth-wrapper"
-import setupDatabase from '@/lib/db-init'
 
 const inter = Inter({ subsets: ["latin"] })
 
-// Call setupDatabase at the module level
-setupDatabase()
-
-export const metadata = {
+export const metadata: Metadata = {
   title: "SCF Lead Management",
-  description: "Lead Management System for Supply Chain Finance",
-  generator: 'v0.dev'
+  description: "Supply Chain Finance Lead Management System",
 }
 
 export default function RootLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode
-}) {
+}>) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
           <AuthProvider>
             <ClientSideAuthWrapper>
               {children}
@@ -12013,6 +12641,201 @@ export default function MasterLayout({
 }
 </file>
 
+<file path="components/SCFleadmanagement/edit-lead-modal.tsx">
+"use client"
+
+import { useState } from "react"
+import { X } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import db from "@/lib/db"
+import { stageToFlagMap } from "@/lib/lead-workflow"
+import { createLeadCommunication } from "@/lib/lead-workflow"
+
+interface Lead {
+  id: string
+  processedLeadId: string
+  workflowStateId: string
+  dealerName: string
+  anchorName: string
+  rmName: string
+  rmId: string
+  lastUpdated: string
+  ageingBucket: string
+  lastActionDate: string
+  flag: string
+  currentStage: string
+}
+
+interface EditLeadModalProps {
+  lead: Lead
+  isOpen: boolean
+  onClose: () => void
+  onSave?: () => void
+}
+
+// Define a mapping from flag to currentStage
+const flagToStageMap: Record<string, string> = Object.fromEntries(
+  Object.entries(stageToFlagMap).map(([stage, flag]) => [flag, stage])
+);
+
+export default function EditLeadModal({ lead, isOpen, onClose, onSave }: EditLeadModalProps) {
+  const [flag, setFlag] = useState(lead.flag)
+  const [notes, setNotes] = useState("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSave = async () => {
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      
+      // Convert selected flag back to a stage value
+      const newStage = flagToStageMap[flag] || lead.currentStage;
+      
+      // If stage didn't change, don't update
+      if (newStage === lead.currentStage && !notes) {
+        onClose();
+        return;
+      }
+      
+      const now = new Date().toISOString();
+      const updates: any = {
+        updatedAt: now
+      };
+      
+      // If stage changed, update stage-related fields
+      if (newStage !== lead.currentStage) {
+        updates.currentStage = newStage;
+        updates.lastStageChangeTimestamp = now;
+      }
+      
+      // Update the workflow state
+      await db.lead_workflow_states.update(lead.workflowStateId, updates);
+      
+      // If notes were provided, add a communication record
+      if (notes.trim()) {
+        await createLeadCommunication({
+          processedLeadId: lead.processedLeadId,
+          communicationType: 'StageUpdate',
+          title: 'Manual Stage Update',
+          description: notes,
+          senderType: 'RM',
+          senderAdidOrEmail: lead.rmId || 'system',
+          recipientAdidOrEmail: 'system',
+          relatedWorkflowStateId: lead.workflowStateId
+        });
+      }
+      
+      // Call onSave callback if provided to refresh the leads list
+      if (onSave) {
+        onSave();
+      }
+      
+      onClose();
+    } catch (err) {
+      console.error("Error updating lead:", err);
+      setError("Failed to update lead. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+      <div className="bg-white dark:bg-[#0F0F12] rounded-xl shadow-lg w-full max-w-2xl max-h-[90vh] overflow-hidden">
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-[#1F1F23]">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Edit Lead {lead.id}</h2>
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onClose}>
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </Button>
+        </div>
+
+        <div className="p-4 overflow-y-auto max-h-[calc(90vh-120px)]">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div>
+              <Label htmlFor="dealerName">Dealer Name</Label>
+              <Input id="dealerName" value={lead.dealerName} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
+            </div>
+            <div>
+              <Label htmlFor="anchorName">Anchor Name</Label>
+              <Input id="anchorName" value={lead.anchorName} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
+            </div>
+            <div>
+              <Label htmlFor="rmName">RM Name</Label>
+              <Input id="rmName" value={lead.rmName} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
+            </div>
+            <div>
+              <Label htmlFor="lastUpdated">Last Updated</Label>
+              <Input id="lastUpdated" value={lead.lastUpdated.split('T')[0] || lead.lastUpdated} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
+            </div>
+            <div>
+              <Label htmlFor="ageingBucket">Ageing Bucket</Label>
+              <Input id="ageingBucket" value={lead.ageingBucket} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
+            </div>
+            <div>
+              <Label htmlFor="lastActionDate">Last Action Date</Label>
+              <Input id="lastActionDate" value={lead.lastActionDate} readOnly className="bg-gray-50 dark:bg-[#1F1F23]" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div>
+              <Label htmlFor="flag">Flag</Label>
+              <Select value={flag} onValueChange={setFlag}>
+                <SelectTrigger id="flag">
+                  <SelectValue placeholder="Select flag" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="With RM">With RM</SelectItem>
+                  <SelectItem value="Escalation 1">Escalation 1</SelectItem>
+                  <SelectItem value="Escalation 2">Escalation 2</SelectItem>
+                  <SelectItem value="With PSM">With PSM</SelectItem>
+                  <SelectItem value="Under Progress">Under Progress</SelectItem>
+                  <SelectItem value="Dropped">Dropped</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <Label htmlFor="notes">Notes</Label>
+            <Textarea 
+              id="notes" 
+              placeholder="Add notes about this lead..." 
+              className="min-h-[100px]"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+
+          {error && (
+            <div className="mb-4 p-3 text-sm text-red-600 bg-red-100 rounded-md dark:bg-red-900/30 dark:text-red-400">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 p-4 border-t border-gray-200 dark:border-[#1F1F23]">
+          <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={isSubmitting}>
+            {isSubmitting ? "Saving..." : "Save Changes"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+</file>
+
 <file path="components/SCFleadmanagement/lead-details.tsx">
 "use client"
 
@@ -12020,7 +12843,7 @@ import { useState, useEffect } from "react"
 import { 
   ArrowLeft, MessageSquare, Mail, AlertTriangle, 
   Calendar, Clock, Check, ChevronDown, ChevronUp, 
-  FileText, Send, Download 
+  FileText, Send, Download, Sparkles 
 } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -12034,6 +12857,8 @@ import {
   getLeadCommunicationsByProcessedLeadId
 } from "@/lib/lead-workflow"
 import { format } from "date-fns"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { safeDbOperation } from "@/lib/db-init"
 
 interface Lead {
   id: string
@@ -12158,18 +12983,40 @@ const LEAD_HISTORY: LeadHistory[] = [
   }
 ]
 
+// Check if we're in a browser environment safely
+const isBrowser = () => {
+  try {
+    return typeof window !== 'undefined' && 
+           typeof window.document !== 'undefined';
+  } catch (e) {
+    return false;
+  }
+};
+
 export default function LeadDetails({ leadId }: LeadDetailsProps) {
   const [expandedItems, setExpandedItems] = useState<string[]>([])
   const [communications, setCommunications] = useState<LeadCommunication[]>([])
   const [workflowState, setWorkflowState] = useState<LeadWorkflowState | null>(null)
   const [loadingComms, setLoadingComms] = useState(true)
   const [loadingWorkflowState, setLoadingWorkflowState] = useState(true)
+  const [mounted, setMounted] = useState(false)
+
+  // Set mounted flag on client side
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Fetch workflow state for this lead
   useEffect(() => {
+    // Skip fetching on server-side or if not mounted
+    if (!isBrowser() || !mounted) return;
+
     async function fetchWorkflowState() {
       try {
-        const state = await getLeadWorkflowStateByProcessedLeadId(leadId);
+        const state = await safeDbOperation(
+          () => getLeadWorkflowStateByProcessedLeadId(leadId),
+          undefined
+        );
         setWorkflowState(state || null);
       } catch (err) {
         console.error("Error fetching workflow state:", err)
@@ -12179,13 +13026,19 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
     }
     
     fetchWorkflowState()
-  }, [leadId])
+  }, [leadId, mounted])
 
   // Fetch communications for this lead
   useEffect(() => {
+    // Skip fetching on server-side or if not mounted
+    if (!isBrowser() || !mounted) return;
+
     async function fetchCommunications() {
       try {
-        const comms = await getLeadCommunicationsByProcessedLeadId(leadId);
+        const comms = await safeDbOperation(
+          () => getLeadCommunicationsByProcessedLeadId(leadId),
+          []
+        );
         
         // Sort by timestamp (newest first)
         const sortedComms = comms.sort((a, b) =>
@@ -12201,7 +13054,20 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
     }
     
     fetchCommunications()
-  }, [leadId])
+  }, [leadId, mounted])
+
+  // Skip rendering until mounted to prevent hydration mismatch
+  if (!mounted && isBrowser()) {
+    return (
+      <div className="space-y-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/3"></div>
+          <div className="h-80 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="h-40 bg-gray-200 dark:bg-gray-700 rounded"></div>
+        </div>
+      </div>
+    );
+  }
 
   const toggleItem = (itemId: string) => {
     setExpandedItems(prevItems => 
@@ -12610,6 +13476,126 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Communication history card */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Communication History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {communications.length === 0 ? (
+              <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">
+                No communications found for this lead.
+              </div>
+            ) : (
+              communications.map((comm, index) => (
+                <div
+                  key={comm.id}
+                  className="p-4 border rounded-lg"
+                >
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <h4 className="font-medium">
+                        {comm.title || comm.communicationType || (comm as any).messageType || 'Communication'}
+                      </h4>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                        {new Date(comm.timestamp).toLocaleString()} • 
+                        From: {comm.senderAdidOrEmail || (comm as any).sender || 'Unknown'} • 
+                        To: {comm.recipientAdidOrEmail || (comm as any).recipient || 'Unknown'}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => toggleItem(comm.id)}
+                    >
+                      {expandedItems.includes(comm.id) ? (
+                        <ChevronUp className="h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                  
+                  {expandedItems.includes(comm.id) && (
+                    <>
+                      <div className="p-3 bg-gray-50 dark:bg-[#1F1F23] rounded-md my-3">
+                        <p className="text-sm whitespace-pre-wrap">
+                          {comm.description || (comm as any).content || ''}
+                        </p>
+                      </div>
+                      
+                      {/* Display AI-generated information if available */}
+                      {(comm.aiSummary || comm.aiDecision) && (
+                        <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md">
+                          <div className="flex items-center mb-2">
+                            <Sparkles className="h-4 w-4 text-blue-500 mr-2" />
+                            <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                              AI Analysis
+                            </span>
+                          </div>
+                          
+                          {comm.aiSummary && (
+                            <div className="mb-2">
+                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                                Summary:
+                              </span>
+                              <span className="text-sm ml-2">
+                                {comm.aiSummary}
+                              </span>
+                            </div>
+                          )}
+                          
+                          {comm.aiDecision && (
+                            <div className="mb-2">
+                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                                Suggested Next Action:
+                              </span>
+                              <span className="text-sm ml-2">
+                                {comm.aiDecision}
+                              </span>
+                            </div>
+                          )}
+                          
+                          {comm.aiTokensConsumed && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              Tokens used: {comm.aiTokensConsumed}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Attachments section (if any) */}
+                      {comm.attachments && comm.attachments.length > 0 && (
+                        <div className="mt-3">
+                          <h5 className="text-sm font-medium mb-2">Attachments:</h5>
+                          <div className="space-y-2">
+                            {comm.attachments.map((attachment, i) => (
+                              <div key={i} className="flex items-center p-2 border rounded-md bg-gray-50 dark:bg-[#1F1F23]">
+                                <FileText className="h-4 w-4 mr-2 text-gray-400" />
+                                <span className="text-sm">{attachment.name}</span>
+                                <span className="text-xs text-gray-500 ml-2">({attachment.size})</span>
+                                {attachment.url && (
+                                  <Button variant="ghost" size="sm" className="ml-auto h-6 px-2">
+                                    <Download className="h-3 w-3 mr-1" />
+                                    <span className="text-xs">Download</span>
+                                  </Button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -13382,6 +14368,49 @@ export interface ProcessedLead {
   errorDescription: string | null;
 }
 
+export interface AIPromptsMaster {
+  id: string;
+  configName: string;
+  serviceProvider: string;
+  apiKey: string;
+  apiEndpoint?: string;
+  defaultModel: string;
+  promptSummary: string;
+  promptNextAction: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Define the updated LeadCommunication interface separately to avoid type conflicts
+export interface UpdatedLeadCommunication {
+  id: string; // UUID for the communication
+  processedLeadId: string; // Processed lead ID this communication is related to
+  timestamp: string; // ISO date string
+  communicationType: 
+    'LeadAssignmentEmail' | 
+    'RMReply' | 
+    'SystemFollowUpEmail' | 
+    'SystemReminderEmail' | 
+    'PSMDecision_ReassignToRM' | 
+    'PSMDecision_DropLead' | 
+    'StageUpdate' | 
+    'AISystemAssessment' | 
+    'NoteAdded';
+  title: string; // e.g., "Lead Uploaded Email", "RM Response"
+  description: string; // Main body/details of the history item
+  senderType: 'System' | 'RM' | 'PSM' | 'User';
+  senderAdidOrEmail: string; // ADID for internal users, email for system/external
+  recipientAdidOrEmail: string; // ADID or email of the primary recipient
+  ccEmails?: string[]; // Array of emails for CC, if applicable
+  aiSummary?: string; // AI-generated summary of RM replies or other content
+  aiDecision?: string; // AI's suggested next step or assessment outcome
+  aiTokensConsumed?: number; // Number of tokens consumed for this AI operation
+  attachments?: { name: string; size: string; url?: string; type: string }[]; // Array of attachment objects
+  relatedWorkflowStateId?: string; // Optional FK to LeadWorkflowState.id
+}
+
+// Keep the original LeadCommunication interface for backward compatibility
 export interface LeadCommunication {
   id: string; // UUID for the communication
   leadId: string; // Processed lead ID this communication is related to
@@ -13391,6 +14420,19 @@ export interface LeadCommunication {
   timestamp: string; // ISO date string
   sender: 'system' | 'rm'; // Who sent the message
   recipient: 'rm' | 'system'; // Who the message is for
+  processedLeadId?: string; // Added for compatibility with new schema
+  communicationType?: string; // Added for compatibility with new schema
+  title?: string; // Added for compatibility with new schema
+  description?: string; // Added for compatibility with new schema
+  senderType?: string; // Added for compatibility with new schema
+  senderAdidOrEmail?: string; // Added for compatibility with new schema
+  recipientAdidOrEmail?: string; // Added for compatibility with new schema
+  ccEmails?: string[]; // Added for compatibility with new schema
+  aiSummary?: string; // Added for compatibility with new schema
+  aiDecision?: string; // Added for compatibility with new schema
+  aiTokensConsumed?: number; // Added for compatibility with new schema
+  attachments?: { name: string; size: string; url?: string; type: string }[]; // Added for compatibility with new schema
+  relatedWorkflowStateId?: string; // Added for compatibility with new schema
 }
 
 export interface LeadWorkflowState {
@@ -13418,7 +14460,8 @@ type StoreName =
   'error_codes' | 
   'processed_leads' | 
   'lead_communications' |
-  'lead_workflow_states';
+  'lead_workflow_states' |
+  'ai_prompts_master';
 
 type StoreTableMap = {
   anchor_master: AnchorMaster;
@@ -13430,6 +14473,7 @@ type StoreTableMap = {
   processed_leads: ProcessedLead;
   lead_communications: LeadCommunication;
   lead_workflow_states: LeadWorkflowState;
+  ai_prompts_master: AIPromptsMaster;
 };
 
 // --- Dexie Database Setup ---
@@ -13443,6 +14487,7 @@ export class SCFLeadManagementDB extends Dexie {
   processed_leads!: Table<ProcessedLead, string>;
   lead_communications!: Table<LeadCommunication, string>;
   lead_workflow_states!: Table<LeadWorkflowState, string>;
+  ai_prompts_master!: Table<AIPromptsMaster, string>;
 
   constructor() {
     super('SCFLeadManagement');
@@ -13495,6 +14540,21 @@ export class SCFLeadManagementDB extends Dexie {
       error_codes: '++id, errorCode, module, severity',
       processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode'
     });
+
+    // Version 6: Add ai_prompts_master table and update lead_communications table
+    this.version(6).stores({
+      // Carry forward all table definitions from previous versions
+      anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
+      hierarchy_master: 'id, employeeName, empAdid, fullName, rblAdid, rblName, region, zhAdid, zhName',
+      holiday_master: 'id, Date, HolidayType, date, name, type, description',
+      pincode_branch: 'id, pincode, branchCode, branchName, city, state, region, active',
+      rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
+      error_codes: '++id, errorCode, module, severity',
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode',
+      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail',
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, currentAssigneeType, nextFollowUpTimestamp, updatedAt',
+      ai_prompts_master: 'id, configName, serviceProvider, isActive'
+    });
   }
 }
 
@@ -13513,8 +14573,9 @@ const STORE_FIELDS: Record<StoreName, string[]> = {
   rm_branch: ['id', 'rmId', 'rmName', 'branchCode', 'branchName', 'region', 'role', 'active'],
   error_codes: ['id', 'errorCode', 'description', 'module', 'severity'],
   processed_leads: [],  // No direct upload via master UI, populated programmatically
-  lead_communications: ['id', 'processedLeadId', 'timestamp', 'communicationType', 'title', 'description', 'senderType', 'senderAdidOrEmail', 'recipientAdidOrEmail', 'ccEmails', 'aiSummary', 'aiDecision', 'attachments', 'relatedWorkflowStateId'],
-  lead_workflow_states: ['id', 'processedLeadId', 'currentStage', 'currentAssigneeType', 'currentAssigneeAdid', 'psmAdid', 'lastStageChangeTimestamp', 'lastCommunicationTimestamp', 'nextFollowUpTimestamp', 'escalationLevel', 'droppedReason', 'updatedAt', 'createdAt']
+  lead_communications: ['id', 'leadId', 'rmEmail', 'messageType', 'content', 'timestamp', 'sender', 'recipient', 'processedLeadId', 'communicationType', 'title', 'description', 'senderType', 'senderAdidOrEmail', 'recipientAdidOrEmail', 'ccEmails', 'aiSummary', 'aiDecision', 'aiTokensConsumed', 'attachments', 'relatedWorkflowStateId'],
+  lead_workflow_states: ['id', 'processedLeadId', 'currentStage', 'currentAssigneeType', 'currentAssigneeAdid', 'psmAdid', 'lastStageChangeTimestamp', 'lastCommunicationTimestamp', 'nextFollowUpTimestamp', 'escalationLevel', 'droppedReason', 'updatedAt', 'createdAt'],
+  ai_prompts_master: ['id', 'configName', 'serviceProvider', 'apiKey', 'apiEndpoint', 'defaultModel', 'promptSummary', 'promptNextAction', 'isActive', 'createdAt', 'updatedAt']
 };
 
 // --- MasterService Class ---
@@ -13977,6 +15038,7 @@ export default function AnchorMaster() {
     "lucide-react": "^0.454.0",
     "next": "15.2.4",
     "next-themes": "latest",
+    "openai": "^5.0.1",
     "react": "^19",
     "react-day-picker": "8.10.1",
     "react-dom": "^19",
@@ -15008,6 +16070,13 @@ export default function Sidebar() {
                         className="flex items-center py-2 text-sm transition-colors text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
                       >
                         Error Code Master
+                      </Link>
+                      <Link
+                        href="/masters/ai-prompts"
+                        onClick={handleNavigation}
+                        className="flex items-center py-2 text-sm transition-colors text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                      >
+                        AI Prompts Master
                       </Link>
                     </div>
                   )}

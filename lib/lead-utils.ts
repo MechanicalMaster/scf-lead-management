@@ -1,4 +1,5 @@
 import db from './db';
+import { safeDbOperation } from './db-init';
 
 /**
  * Function to get an RM's email address from their ADID
@@ -25,9 +26,9 @@ export async function getEmailFromRmAdid(rmAdid: string): Promise<string> {
       .first();
     
     if (rmRecord) {
-      // If we have an RM record but no email, create a dummy email for demo purposes
-      const rmName = rmRecord.rmName.replace(/\s+/g, '.').toLowerCase();
-      return `${rmName}@example.com`;
+      // Use the RM name or ID to construct an email
+      const rmEmail = `${rmRecord.rmName.toLowerCase().replace(/\s+/g, '.')}@example.com`;
+      return rmEmail;
     }
     
     // If all else fails, generate a fallback email using the ADID
@@ -116,85 +117,86 @@ SCF Lead Management System
  * Function to get all emails for a specific RM
  * @param rmAdid RM's ADID or a part of the email address
  */
-export async function getRMInboxEmails(rmAdid: string): Promise<any[]> {
+export async function getRMInboxEmails(rmAdid: string) {
   try {
-    console.log(`[RM Inbox] Looking up emails for RM: ${rmAdid}`);
+    console.log(`[getRMInboxEmails] Getting emails for RM: ${rmAdid}`);
     
-    // First, get the RM's email
-    const rmEmail = await getEmailFromRmAdid(rmAdid);
-    console.log(`[RM Inbox] RM email address: ${rmEmail}`);
+    // Get all leads assigned to this RM safely
+    const processedLeads = await safeDbOperation(
+      () => db.processed_leads
+        .where('assignedRmAdid')
+        .equals(rmAdid)
+        .toArray(),
+      []
+    );
     
-    // Log all lead communications for debugging
-    const allComms = await db.table('lead_communications').toArray();
-    console.log(`[RM Inbox] Total communications in database: ${allComms.length}`);
-    allComms.forEach((comm, index) => {
-      console.log(`[RM Inbox] Communication ${index+1}:`, {
-        id: comm.id,
-        recipientAdidOrEmail: comm.recipientAdidOrEmail || comm.rmEmail,
-        processedLeadId: comm.processedLeadId || comm.leadId,
-        communicationType: comm.communicationType || comm.messageType,
-        senderType: comm.senderType || comm.sender
-      });
-    });
+    console.log(`[getRMInboxEmails] Found ${processedLeads.length} processed leads assigned to RM`);
     
-    // Search for communications where this RM is the recipient
-    let communications = await db.table('lead_communications')
-      .filter(comm => {
-        // Check different combinations to find emails for this RM
-        // Check recipient email contains the RM's email (case insensitive)
-        const recipientEmailMatch = comm.recipientAdidOrEmail && 
-          typeof comm.recipientAdidOrEmail === 'string' && 
-          comm.recipientAdidOrEmail.toLowerCase().includes(rmEmail.toLowerCase());
-        
-        // Check old schema format
-        const oldSchemaMatch = comm.rmEmail === rmEmail && comm.recipient === 'rm';
-        
-        // Check if recipient contains the ADID
-        const recipientAdidMatch = comm.recipientAdidOrEmail && 
-          typeof comm.recipientAdidOrEmail === 'string' && 
-          comm.recipientAdidOrEmail.toLowerCase().includes(rmAdid.toLowerCase());
-        
-        // Check direct equality of recipientAdidOrEmail with rmAdid
-        const directAdidMatch = comm.recipientAdidOrEmail === rmAdid;
-        
-        // Check if the sender is the RM - in case of replies
-        const isSender = (comm.senderAdidOrEmail === rmEmail || 
-                         (comm.sender === 'rm' && comm.rmEmail === rmEmail));
-        
-        // Log this communication's match details for debugging
-        console.log(`[RM Inbox] Checking comm ${comm.id}:`, {
-          recipientEmailMatch,
-          oldSchemaMatch,
-          recipientAdidMatch,
-          directAdidMatch,
-          isSender,
-          recipientValue: comm.recipientAdidOrEmail || comm.recipient
-        });
-        
-        // Return true if any match condition is met
-        return recipientEmailMatch || oldSchemaMatch || recipientAdidMatch || directAdidMatch || isSender;
-      })
-      .toArray();
+    // Array to hold all lead communications
+    const allCommunications = [];
     
-    // Sort by timestamp (newest first)
-    communications.sort((a, b) => 
+    // Get communications for each lead safely
+    for (const lead of processedLeads) {
+      try {
+        // Get communications for this lead safely
+        const communications = await safeDbOperation(
+          () => db.lead_communications
+            .where('processedLeadId')
+            .equals(lead.id)
+            .toArray(),
+          []
+        );
+        
+        // Add to the all communications array
+        allCommunications.push(...communications);
+      } catch (error) {
+        console.error(`[getRMInboxEmails] Error getting communications for lead ${lead.id}:`, error);
+      }
+    }
+    
+    // Get old-style communications assigned directly to RM email
+    try {
+      // Try to find RM email from RMBranch table safely
+      let rmEmail = null;
+      const rmRecord = await safeDbOperation(
+        () => db.rm_branch
+          .where('rmId')
+          .equals(rmAdid)
+          .first(),
+        null
+      );
+      
+      if (rmRecord) {
+        // Use the RM name or ID to construct an email
+        rmEmail = `${rmRecord.rmName.toLowerCase().replace(/\s+/g, '.')}@example.com`;
+      } else {
+        // Default to a pattern based on RM ID
+        rmEmail = `${rmAdid.toLowerCase()}@example.com`;
+      }
+      
+      // Get old-style communications safely
+      const oldStyleComms = await safeDbOperation(
+        () => db.lead_communications
+          .where('rmEmail')
+          .equals(rmEmail)
+          .toArray(),
+        []
+      );
+      
+      // Add to the all communications array
+      allCommunications.push(...oldStyleComms);
+    } catch (error) {
+      console.error('[getRMInboxEmails] Error getting old-style communications:', error);
+    }
+    
+    // Sort all communications by timestamp (newest first)
+    allCommunications.sort((a, b) => 
       new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     );
     
-    console.log(`[RM Inbox] Found ${communications.length} emails for RM ${rmAdid} (${rmEmail})`);
-    if (communications.length > 0) {
-      communications.forEach((comm, i) => {
-        console.log(`[RM Inbox] Found email ${i+1}:`, {
-          id: comm.id,
-          title: comm.title,
-          timestamp: comm.timestamp
-        });
-      });
-    }
-    
-    return communications;
+    return allCommunications;
   } catch (error) {
-    console.error(`[RM Inbox] Error fetching emails for RM ${rmAdid}:`, error);
+    console.error('[getRMInboxEmails] Error getting RM inbox emails:', error);
     return [];
   }
 } 

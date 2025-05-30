@@ -12,6 +12,20 @@ import Link from "next/link"
 import { format } from "date-fns"
 import { getRMInboxEmails } from "@/lib/lead-utils"
 import { createRMReplyCommunication } from "@/lib/lead-workflow"
+import { getAiAnalysisForReply } from "@/lib/ai-service"
+import { safeDbOperation } from "@/lib/db-init"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Terminal, AlertCircle } from "lucide-react"
+
+// Check if we're in a browser environment safely
+const isBrowser = () => {
+  try {
+    return typeof window !== 'undefined' && 
+           typeof window.document !== 'undefined';
+  } catch (e) {
+    return false;
+  }
+};
 
 export default function RMInbox() {
   const { userEmail, user } = useAuth()
@@ -20,9 +34,20 @@ export default function RMInbox() {
   const [error, setError] = useState<string | null>(null)
   const [expandedMessages, setExpandedMessages] = useState<Record<string, boolean>>({})
   const [replyTexts, setReplyTexts] = useState<Record<string, string>>({})
+  const [submittingIds, setSubmittingIds] = useState<Record<string, boolean>>({})
+  const [mounted, setMounted] = useState(false)
+  const [aiConfigStatus, setAiConfigStatus] = useState<'unconfigured' | 'invalid' | 'configured' | 'unknown'>('unknown')
+
+  // Set mounted flag on client side
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Fetch communications for the logged-in RM
   useEffect(() => {
+    // Skip fetching on server-side or if not mounted
+    if (!isBrowser() || !mounted) return;
+    
     async function fetchCommunications() {
       if (!userEmail) return;
 
@@ -37,8 +62,11 @@ export default function RMInbox() {
         const rmAdid = user?.id || "RM1";
         console.log(`[RM Inbox Component] Using RM ADID: ${rmAdid}`);
         
-        // Use the utility function to get inbox emails
-        const inboxEmails = await getRMInboxEmails(rmAdid);
+        // Use the utility function to get inbox emails safely
+        const inboxEmails = await safeDbOperation(
+          () => getRMInboxEmails(rmAdid),
+          [] // Empty array as fallback
+        );
         
         console.log(`[RM Inbox Component] Retrieved ${inboxEmails.length} emails`);
         
@@ -52,7 +80,34 @@ export default function RMInbox() {
     }
 
     fetchCommunications();
-  }, [userEmail, user]);
+  }, [userEmail, user, mounted]);
+
+  // Add effect to check AI configuration
+  useEffect(() => {
+    // Skip on server-side or if not mounted
+    if (!isBrowser() || !mounted) return;
+    
+    // Check if OpenAI API key is configured in environment variables
+    const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+    if (!apiKey) {
+      setAiConfigStatus('unconfigured');
+    } else {
+      setAiConfigStatus('configured');
+    }
+  }, [mounted]);
+
+  // Skip rendering until mounted to prevent hydration mismatch
+  if (!mounted && isBrowser()) {
+    return (
+      <div className="p-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/3"></div>
+          <div className="h-24 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="h-24 bg-gray-200 dark:bg-gray-700 rounded"></div>
+        </div>
+      </div>
+    );
+  }
 
   // Toggle message expansion
   const toggleMessageExpand = (id: string) => {
@@ -76,6 +131,7 @@ export default function RMInbox() {
     
     try {
       console.log("[RM Inbox Component] Submitting reply to:", comm);
+      setIsSubmitting(comm.id, true);
       
       // Get the processed lead ID (from old or new schema)
       const processedLeadId = comm.processedLeadId || comm.leadId;
@@ -86,11 +142,33 @@ export default function RMInbox() {
       
       console.log(`[RM Inbox Component] Creating reply for lead: ${processedLeadId}`);
       
+      // Get AI analysis for the reply text
+      let aiSummary, aiDecision, aiTokensConsumed;
+      try {
+        const aiAnalysis = await getAiAnalysisForReply(replyTexts[comm.id]);
+        if (aiAnalysis) {
+          aiSummary = aiAnalysis.summary;
+          aiDecision = aiAnalysis.nextActionPrediction;
+          aiTokensConsumed = aiAnalysis.tokensConsumed;
+          console.log("[RM Inbox Component] AI Analysis:", {
+            summary: aiSummary,
+            decision: aiDecision,
+            tokens: aiTokensConsumed
+          });
+        }
+      } catch (aiError) {
+        console.error("[RM Inbox Component] Error getting AI analysis:", aiError);
+        // Continue without AI analysis if it fails
+      }
+      
       // Use the lead workflow function to create a reply
       const reply = await createRMReplyCommunication(
         processedLeadId,
         userEmail,
-        replyTexts[comm.id]
+        replyTexts[comm.id],
+        aiSummary,
+        aiDecision,
+        aiTokensConsumed
       );
       
       console.log("[RM Inbox Component] Reply created successfully:", reply);
@@ -112,6 +190,8 @@ export default function RMInbox() {
     } catch (err: any) {
       console.error("[RM Inbox Component] Error submitting reply:", err);
       setError("Failed to send your reply. Please try again.");
+    } finally {
+      setIsSubmitting(comm.id, false);
     }
   }
 
@@ -144,6 +224,17 @@ export default function RMInbox() {
   const getMessageContent = (comm: any) => 
     comm.content || comm.description || ''
 
+  // Helper to set submission status
+  const setIsSubmitting = (id: string, isSubmitting: boolean) => {
+    setSubmittingIds(prev => ({
+      ...prev,
+      [id]: isSubmitting
+    }));
+  };
+
+  // Helper to check if a reply is submitting
+  const isSubmitting = (id: string) => submittingIds[id] || false;
+
   if (loading) {
     return (
       <div className="p-6">
@@ -175,6 +266,16 @@ export default function RMInbox() {
           View and respond to lead assignments and communications
         </p>
       </div>
+
+      {aiConfigStatus === 'unconfigured' && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>AI Configuration Required</AlertTitle>
+          <AlertDescription>
+            AI analysis features require an OpenAI API key. Please add NEXT_PUBLIC_OPENAI_API_KEY to your .env.local file.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {Object.keys(groupedCommunications).length === 0 ? (
         <div className="bg-gray-50 dark:bg-gray-800 p-8 rounded-md text-center">
@@ -264,12 +365,21 @@ export default function RMInbox() {
                                 className="min-h-[100px]"
                               />
                               <Button 
-                                className="flex items-center gap-2"
-                                onClick={() => submitReply(comm)}
-                                disabled={!replyTexts[comm.id]}
+                                onClick={() => submitReply(comm)} 
+                                disabled={!replyTexts[comm.id]?.trim() || isSubmitting(comm.id)}
+                                className="flex-shrink-0"
                               >
-                                <Send className="h-4 w-4" />
-                                Send Reply
+                                {isSubmitting(comm.id) ? (
+                                  <span className="flex items-center">
+                                    <span className="h-4 w-4 mr-2 border-2 border-t-transparent border-white rounded-full animate-spin"></span>
+                                    Processing...
+                                  </span>
+                                ) : (
+                                  <>
+                                    <Send className="h-4 w-4 mr-2" />
+                                    Send Reply
+                                  </>
+                                )}
                               </Button>
                             </div>
                           )}

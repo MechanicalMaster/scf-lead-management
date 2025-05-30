@@ -41,6 +41,7 @@ export interface LeadCommunication {
   ccEmails?: string[]; // Array of emails for CC, if applicable
   aiSummary?: string; // AI-generated summary of RM replies or other content
   aiDecision?: string; // AI's suggested next step or assessment outcome
+  aiTokensConsumed?: number;
   attachments?: { name: string; size: string; url?: string; type: string }[]; // Array of attachment objects
   relatedWorkflowStateId?: string; // Optional FK to LeadWorkflowState.id
 }
@@ -152,6 +153,7 @@ export async function createLeadCommunication(
     ccEmails: data.ccEmails || [],
     aiSummary: data.aiSummary,
     aiDecision: data.aiDecision,
+    aiTokensConsumed: data.aiTokensConsumed,
     attachments: data.attachments || [],
     relatedWorkflowStateId: data.relatedWorkflowStateId
   };
@@ -279,7 +281,7 @@ export async function createLeadAssignmentCommunication(
 }
 
 /**
- * Creates an RM reply communication
+ * Creates a new RM reply communication
  */
 export async function createRMReplyCommunication(
   processedLeadId: string,
@@ -287,20 +289,67 @@ export async function createRMReplyCommunication(
   replyContent: string,
   aiSummary?: string,
   aiDecision?: string,
+  aiTokensConsumed?: number,
   attachments?: { name: string; size: string; url?: string; type: string }[]
 ): Promise<LeadCommunication> {
-  return createLeadCommunication({
-    processedLeadId,
-    communicationType: 'RMReply',
-    title: 'RM Reply Received',
-    description: replyContent,
-    senderType: 'RM',
-    senderAdidOrEmail: rmEmail,
-    recipientAdidOrEmail: 'system@scfleadmgmt.com',
-    aiSummary,
-    aiDecision,
-    attachments
-  });
+  try {
+    // Create the communication record
+    const communication = await createLeadCommunication({
+      processedLeadId,
+      communicationType: 'RMReply',
+      title: 'RM Reply Received',
+      description: replyContent,
+      senderType: 'RM',
+      senderAdidOrEmail: rmEmail,
+      recipientAdidOrEmail: 'system@scfleadmgmt.com',
+      aiSummary,
+      aiDecision,
+      aiTokensConsumed,
+      attachments
+    });
+
+    // Get the workflow state to update it
+    const workflowState = await getLeadWorkflowStateByProcessedLeadId(processedLeadId);
+    
+    if (workflowState) {
+      const now = new Date().toISOString();
+      let updates: Partial<LeadWorkflowState> = {
+        lastCommunicationTimestamp: now,
+        updatedAt: now
+      };
+      
+      // If AI decision is available, update the workflow state accordingly
+      if (aiDecision) {
+        let newStage = workflowState.currentStage;
+        
+        // Map AI decision to workflow stage
+        if (aiDecision === 'Dealer Not Interested') {
+          newStage = 'Dropped';
+          updates.droppedReason = 'AI: Dealer Not Interested';
+        } else if (aiDecision === 'FollowUp') {
+          newStage = 'RM_AwaitingReply';
+          // Set next follow-up timestamp to 2 days from now
+          const followUpDate = new Date();
+          followUpDate.setDate(followUpDate.getDate() + 2);
+          updates.nextFollowUpTimestamp = followUpDate.toISOString();
+        }
+        
+        // Only update stage if it changed
+        if (newStage !== workflowState.currentStage) {
+          updates.currentStage = newStage;
+          updates.lastStageChangeTimestamp = now;
+        }
+      }
+      
+      // Update the workflow state
+      await updateLeadWorkflowState(workflowState.id, updates);
+    }
+    
+    return communication;
+  } catch (error) {
+    console.error('Failed to create RM reply communication:', error);
+    throw error;
+  }
 }
 
 /**

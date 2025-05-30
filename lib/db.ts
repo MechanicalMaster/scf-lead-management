@@ -91,6 +91,35 @@ export interface ProcessedLead {
   errorDescription: string | null;
 }
 
+// Define the updated LeadCommunication interface separately to avoid type conflicts
+export interface UpdatedLeadCommunication {
+  id: string; // UUID for the communication
+  processedLeadId: string; // Processed lead ID this communication is related to
+  timestamp: string; // ISO date string
+  communicationType: 
+    'LeadAssignmentEmail' | 
+    'RMReply' | 
+    'SystemFollowUpEmail' | 
+    'SystemReminderEmail' | 
+    'PSMDecision_ReassignToRM' | 
+    'PSMDecision_DropLead' | 
+    'StageUpdate' | 
+    'AISystemAssessment' | 
+    'NoteAdded';
+  title: string; // e.g., "Lead Uploaded Email", "RM Response"
+  description: string; // Main body/details of the history item
+  senderType: 'System' | 'RM' | 'PSM' | 'User';
+  senderAdidOrEmail: string; // ADID for internal users, email for system/external
+  recipientAdidOrEmail: string; // ADID or email of the primary recipient
+  ccEmails?: string[]; // Array of emails for CC, if applicable
+  aiSummary?: string; // AI-generated summary of RM replies or other content
+  aiDecision?: string; // AI's suggested next step or assessment outcome
+  aiTokensConsumed?: number; // Number of tokens consumed for this AI operation
+  attachments?: { name: string; size: string; url?: string; type: string }[]; // Array of attachment objects
+  relatedWorkflowStateId?: string; // Optional FK to LeadWorkflowState.id
+}
+
+// Keep the original LeadCommunication interface for backward compatibility
 export interface LeadCommunication {
   id: string; // UUID for the communication
   leadId: string; // Processed lead ID this communication is related to
@@ -100,6 +129,19 @@ export interface LeadCommunication {
   timestamp: string; // ISO date string
   sender: 'system' | 'rm'; // Who sent the message
   recipient: 'rm' | 'system'; // Who the message is for
+  processedLeadId?: string; // Added for compatibility with new schema
+  communicationType?: string; // Added for compatibility with new schema
+  title?: string; // Added for compatibility with new schema
+  description?: string; // Added for compatibility with new schema
+  senderType?: string; // Added for compatibility with new schema
+  senderAdidOrEmail?: string; // Added for compatibility with new schema
+  recipientAdidOrEmail?: string; // Added for compatibility with new schema
+  ccEmails?: string[]; // Added for compatibility with new schema
+  aiSummary?: string; // Added for compatibility with new schema
+  aiDecision?: string; // Added for compatibility with new schema
+  aiTokensConsumed?: number; // Added for compatibility with new schema
+  attachments?: { name: string; size: string; url?: string; type: string }[]; // Added for compatibility with new schema
+  relatedWorkflowStateId?: string; // Added for compatibility with new schema
 }
 
 export interface LeadWorkflowState {
@@ -204,6 +246,36 @@ export class SCFLeadManagementDB extends Dexie {
       error_codes: '++id, errorCode, module, severity',
       processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode'
     });
+
+    // Version 6: Add ai_prompts_master table and update lead_communications table
+    this.version(6).stores({
+      // Carry forward all table definitions from previous versions
+      anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
+      hierarchy_master: 'id, employeeName, empAdid, fullName, rblAdid, rblName, region, zhAdid, zhName',
+      holiday_master: 'id, Date, HolidayType, date, name, type, description',
+      pincode_branch: 'id, pincode, branchCode, branchName, city, state, region, active',
+      rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
+      error_codes: '++id, errorCode, module, severity',
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode',
+      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail',
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, currentAssigneeType, nextFollowUpTimestamp, updatedAt',
+      ai_prompts_master: 'id, configName, serviceProvider, isActive'
+    });
+    
+    // Version 7: Remove ai_prompts_master table
+    this.version(7).stores({
+      // Carry forward all table definitions from previous versions
+      anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
+      hierarchy_master: 'id, employeeName, empAdid, fullName, rblAdid, rblName, region, zhAdid, zhName',
+      holiday_master: 'id, Date, HolidayType, date, name, type, description',
+      pincode_branch: 'id, pincode, branchCode, branchName, city, state, region, active',
+      rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
+      error_codes: '++id, errorCode, module, severity',
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode',
+      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail',
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, currentAssigneeType, nextFollowUpTimestamp, updatedAt',
+      ai_prompts_master: null // This line ensures the table is removed on upgrade
+    });
   }
 }
 
@@ -222,7 +294,7 @@ const STORE_FIELDS: Record<StoreName, string[]> = {
   rm_branch: ['id', 'rmId', 'rmName', 'branchCode', 'branchName', 'region', 'role', 'active'],
   error_codes: ['id', 'errorCode', 'description', 'module', 'severity'],
   processed_leads: [],  // No direct upload via master UI, populated programmatically
-  lead_communications: ['id', 'processedLeadId', 'timestamp', 'communicationType', 'title', 'description', 'senderType', 'senderAdidOrEmail', 'recipientAdidOrEmail', 'ccEmails', 'aiSummary', 'aiDecision', 'attachments', 'relatedWorkflowStateId'],
+  lead_communications: ['id', 'leadId', 'rmEmail', 'messageType', 'content', 'timestamp', 'sender', 'recipient', 'processedLeadId', 'communicationType', 'title', 'description', 'senderType', 'senderAdidOrEmail', 'recipientAdidOrEmail', 'ccEmails', 'aiSummary', 'aiDecision', 'aiTokensConsumed', 'attachments', 'relatedWorkflowStateId'],
   lead_workflow_states: ['id', 'processedLeadId', 'currentStage', 'currentAssigneeType', 'currentAssigneeAdid', 'psmAdid', 'lastStageChangeTimestamp', 'lastCommunicationTimestamp', 'nextFollowUpTimestamp', 'escalationLevel', 'droppedReason', 'updatedAt', 'createdAt']
 };
 

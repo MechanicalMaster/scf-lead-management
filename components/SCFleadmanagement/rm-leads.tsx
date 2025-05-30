@@ -13,6 +13,17 @@ import db from "@/lib/db"
 import { stageToFlagMap, createLeadWorkflowState } from "@/lib/lead-workflow"
 import { differenceInDays } from "date-fns"
 import { ProcessedLead, LeadWorkflowState, HierarchyMaster, RMBranch } from "@/lib/db"
+import { safeDbOperation } from "@/lib/db-init"
+
+// Check if we're in a browser environment safely
+const isBrowser = () => {
+  try {
+    return typeof window !== 'undefined' && 
+           typeof window.document !== 'undefined';
+  } catch (e) {
+    return false;
+  }
+};
 
 interface Lead {
   id: string
@@ -61,9 +72,18 @@ export default function RMLeads() {
   const [actualLeads, setActualLeads] = useState<Lead[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  // Set mounted flag on client side
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Fetch leads data based on user role
   useEffect(() => {
+    // Skip fetching on server-side or if not mounted
+    if (!isBrowser() || !mounted) return;
+    
     const fetchLeads = async () => {
       if (!user || !userRole) return;
       
@@ -73,16 +93,22 @@ export default function RMLeads() {
         
         let processedLeads: ProcessedLead[] = [];
         
-        // Fetch leads based on user role
+        // Fetch leads based on user role safely
         if (userRole === "admin") {
           // Admin can see all leads
-          processedLeads = await db.processed_leads.toArray();
+          processedLeads = await safeDbOperation(
+            () => db.processed_leads.toArray(),
+            [] // Empty array as fallback
+          );
         } else if (userRole === "rm") {
           // RM can only see their assigned leads
-          processedLeads = await db.processed_leads
-            .where("assignedRmAdid")
-            .equals(user.id)
-            .toArray();
+          processedLeads = await safeDbOperation(
+            () => db.processed_leads
+              .where("assignedRmAdid")
+              .equals(user.id)
+              .toArray(),
+            [] // Empty array as fallback
+          );
         }
         
         // If no leads found, set empty array
@@ -97,105 +123,123 @@ export default function RMLeads() {
         
         // Process each lead to get workflow state and RM name
         const leadsPromises = processedLeads.map(async (processedLead) => {
-          // Get workflow state for this lead
-          let workflowState = await db.lead_workflow_states
-            .where("processedLeadId")
-            .equals(processedLead.id)
-            .first();
-          
-          // If workflow state doesn't exist, create a default one
-          if (!workflowState) {
-            console.warn(`No workflow state found for lead ${processedLead.id}, creating a default one`);
-            try {
-              // Get PSM ADID from the assigned anchor if available
-              let psmAdid = "unknown";
-              if (processedLead.anchorNameSelected) {
-                const anchorRecord = await db.anchor_master
-                  .where("anchorname")
-                  .equals(processedLead.anchorNameSelected)
-                  .first();
-                
-                if (anchorRecord && anchorRecord.PSMADID) {
-                  psmAdid = anchorRecord.PSMADID;
+          try {
+            // Get workflow state for this lead safely
+            let workflowState = await safeDbOperation(
+              () => db.lead_workflow_states
+                .where("processedLeadId")
+                .equals(processedLead.id)
+                .first(),
+              undefined
+            );
+            
+            // If workflow state doesn't exist, create a default one
+            if (!workflowState) {
+              console.warn(`No workflow state found for lead ${processedLead.id}, creating a default one`);
+              try {
+                // Get PSM ADID from the assigned anchor if available
+                let psmAdid = "unknown";
+                if (processedLead.anchorNameSelected) {
+                  const anchorRecord = await safeDbOperation(
+                    () => db.anchor_master
+                      .where("anchorname")
+                      .equals(processedLead.anchorNameSelected)
+                      .first(),
+                    undefined
+                  );
+                  
+                  if (anchorRecord && anchorRecord.PSMADID) {
+                    psmAdid = anchorRecord.PSMADID;
+                  }
                 }
+                
+                // Create a new workflow state
+                workflowState = await createLeadWorkflowState(
+                  processedLead.id,
+                  processedLead.assignedRmAdid || "unassigned",
+                  psmAdid
+                );
+                
+                console.log(`Created new workflow state for lead ${processedLead.id}`);
+              } catch (err) {
+                console.error(`Failed to create workflow state for lead ${processedLead.id}:`, err);
+                return null;
               }
-              
-              // Create a new workflow state
-              workflowState = await createLeadWorkflowState(
-                processedLead.id,
-                processedLead.assignedRmAdid || "unassigned",
-                psmAdid
-              );
-              
-              console.log(`Created new workflow state for lead ${processedLead.id}`);
-            } catch (err) {
-              console.error(`Failed to create workflow state for lead ${processedLead.id}:`, err);
-              return null;
             }
-          }
-          
-          // Get RM name if not already in the map
-          let rmName = "N/A";
-          if (processedLead.assignedRmAdid) {
-            if (rmNamesMap.has(processedLead.assignedRmAdid)) {
-              rmName = rmNamesMap.get(processedLead.assignedRmAdid) || "N/A";
-            } else {
-              // Try to find RM in RMBranch table first
-              const rmRecord = await db.rm_branch
-                .where("rmId")
-                .equals(processedLead.assignedRmAdid)
-                .first();
-              
-              if (rmRecord) {
-                rmName = rmRecord.rmName;
-                rmNamesMap.set(processedLead.assignedRmAdid, rmName);
+            
+            // Get RM name if not already in the map
+            let rmName = "N/A";
+            if (processedLead.assignedRmAdid) {
+              const rmId = processedLead.assignedRmAdid; // Store in a variable to avoid null
+              if (rmNamesMap.has(rmId)) {
+                rmName = rmNamesMap.get(rmId) || "N/A";
               } else {
-                // If not found, try the HierarchyMaster table
-                const hierarchyRecord = await db.hierarchy_master
-                  .where("empAdid")
-                  .equals(processedLead.assignedRmAdid)
-                  .first();
+                // Try to find RM in RMBranch table first safely
+                const rmRecord = await safeDbOperation(
+                  () => db.rm_branch
+                    .where("rmId")
+                    .equals(rmId)
+                    .first(),
+                  undefined
+                );
                 
-                if (hierarchyRecord) {
-                  rmName = hierarchyRecord.employeeName;
-                  rmNamesMap.set(processedLead.assignedRmAdid, rmName);
+                if (rmRecord) {
+                  rmName = rmRecord.rmName;
+                  rmNamesMap.set(rmId, rmName);
+                } else {
+                  // If not found, try the HierarchyMaster table safely
+                  const hierarchyRecord = await safeDbOperation(
+                    () => db.hierarchy_master
+                      .where("empAdid")
+                      .equals(rmId)
+                      .first(),
+                    undefined
+                  );
+                  
+                  if (hierarchyRecord) {
+                    rmName = hierarchyRecord.employeeName;
+                    rmNamesMap.set(rmId, rmName);
+                  }
                 }
               }
             }
-          }
-          
-          // Calculate ageing bucket
-          const ageingBucket = calculateAgeingBucket(workflowState.createdAt);
-          
-          // Get the display flag from the stage
-          const displayFlag = stageToFlagMap[workflowState.currentStage] || "Under Progress";
-          
-          // Format the lastActionDate
-          let lastActionDate = "N/A";
-          if (workflowState.lastCommunicationTimestamp) {
-            try {
-              const date = new Date(workflowState.lastCommunicationTimestamp);
-              lastActionDate = date.toISOString().split('T')[0]; // YYYY-MM-DD format
-            } catch (error) {
-              console.error("Error formatting date:", error);
+            
+            // Calculate ageing bucket
+            const ageingBucket = calculateAgeingBucket(workflowState.createdAt);
+            
+            // Get the display flag from the stage
+            const displayFlag = stageToFlagMap[workflowState.currentStage] || "Under Progress";
+            
+            // Format the lastActionDate
+            let lastActionDate = "N/A";
+            if (workflowState.lastCommunicationTimestamp) {
+              try {
+                const date = new Date(workflowState.lastCommunicationTimestamp);
+                lastActionDate = date.toISOString().split('T')[0]; // YYYY-MM-DD format
+              } catch (error) {
+                console.error("Error formatting date:", error);
+              }
             }
+            
+            // Return the lead object with combined data
+            return {
+              id: processedLead.id,
+              processedLeadId: processedLead.id,
+              workflowStateId: workflowState.id,
+              dealerName: processedLead.originalData["Name of the Firm"] || "Unknown",
+              anchorName: processedLead.anchorNameSelected || "Unknown",
+              rmName: rmName,
+              rmId: processedLead.assignedRmAdid || "",
+              lastUpdated: workflowState.updatedAt,
+              ageingBucket: ageingBucket,
+              lastActionDate: lastActionDate,
+              flag: displayFlag,
+              currentStage: workflowState.currentStage
+            };
+          } catch (error) {
+            console.error(`Error processing lead ${processedLead.id}:`, error);
+            return null;
           }
-          
-          // Return the lead object with combined data
-          return {
-            id: processedLead.id,
-            processedLeadId: processedLead.id,
-            workflowStateId: workflowState.id,
-            dealerName: processedLead.originalData["Name of the Firm"] || "Unknown",
-            anchorName: processedLead.anchorNameSelected || "Unknown",
-            rmName: rmName,
-            rmId: processedLead.assignedRmAdid || "",
-            lastUpdated: workflowState.updatedAt,
-            ageingBucket: ageingBucket,
-            lastActionDate: lastActionDate,
-            flag: displayFlag,
-            currentStage: workflowState.currentStage
-          };
         });
         
         // Wait for all promises to resolve and filter out null values
@@ -213,7 +257,23 @@ export default function RMLeads() {
     };
     
     fetchLeads();
-  }, [user, userRole]);
+  }, [user, userRole, mounted]);
+
+  // Skip rendering until mounted to prevent hydration mismatch
+  if (!mounted && isBrowser()) {
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">RM Leads</h1>
+          <div className="animate-pulse h-10 w-64 bg-gray-200 dark:bg-gray-700 rounded"></div>
+        </div>
+        <div className="animate-pulse space-y-4">
+          <div className="h-12 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="h-80 bg-gray-200 dark:bg-gray-700 rounded"></div>
+        </div>
+      </div>
+    );
+  }
 
   const handleSort = (field: keyof Lead) => {
     if (sortField === field) {

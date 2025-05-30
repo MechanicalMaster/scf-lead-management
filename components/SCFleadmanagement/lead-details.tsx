@@ -4,7 +4,7 @@ import { useState, useEffect } from "react"
 import { 
   ArrowLeft, MessageSquare, Mail, AlertTriangle, 
   Calendar, Clock, Check, ChevronDown, ChevronUp, 
-  FileText, Send, Download 
+  FileText, Send, Download, Sparkles 
 } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -18,6 +18,8 @@ import {
   getLeadCommunicationsByProcessedLeadId
 } from "@/lib/lead-workflow"
 import { format } from "date-fns"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { safeDbOperation } from "@/lib/db-init"
 
 interface Lead {
   id: string
@@ -142,18 +144,40 @@ const LEAD_HISTORY: LeadHistory[] = [
   }
 ]
 
+// Check if we're in a browser environment safely
+const isBrowser = () => {
+  try {
+    return typeof window !== 'undefined' && 
+           typeof window.document !== 'undefined';
+  } catch (e) {
+    return false;
+  }
+};
+
 export default function LeadDetails({ leadId }: LeadDetailsProps) {
   const [expandedItems, setExpandedItems] = useState<string[]>([])
   const [communications, setCommunications] = useState<LeadCommunication[]>([])
   const [workflowState, setWorkflowState] = useState<LeadWorkflowState | null>(null)
   const [loadingComms, setLoadingComms] = useState(true)
   const [loadingWorkflowState, setLoadingWorkflowState] = useState(true)
+  const [mounted, setMounted] = useState(false)
+
+  // Set mounted flag on client side
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Fetch workflow state for this lead
   useEffect(() => {
+    // Skip fetching on server-side or if not mounted
+    if (!isBrowser() || !mounted) return;
+
     async function fetchWorkflowState() {
       try {
-        const state = await getLeadWorkflowStateByProcessedLeadId(leadId);
+        const state = await safeDbOperation(
+          () => getLeadWorkflowStateByProcessedLeadId(leadId),
+          undefined
+        );
         setWorkflowState(state || null);
       } catch (err) {
         console.error("Error fetching workflow state:", err)
@@ -163,13 +187,19 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
     }
     
     fetchWorkflowState()
-  }, [leadId])
+  }, [leadId, mounted])
 
   // Fetch communications for this lead
   useEffect(() => {
+    // Skip fetching on server-side or if not mounted
+    if (!isBrowser() || !mounted) return;
+
     async function fetchCommunications() {
       try {
-        const comms = await getLeadCommunicationsByProcessedLeadId(leadId);
+        const comms = await safeDbOperation(
+          () => getLeadCommunicationsByProcessedLeadId(leadId),
+          []
+        );
         
         // Sort by timestamp (newest first)
         const sortedComms = comms.sort((a, b) =>
@@ -185,7 +215,20 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
     }
     
     fetchCommunications()
-  }, [leadId])
+  }, [leadId, mounted])
+
+  // Skip rendering until mounted to prevent hydration mismatch
+  if (!mounted && isBrowser()) {
+    return (
+      <div className="space-y-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/3"></div>
+          <div className="h-80 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="h-40 bg-gray-200 dark:bg-gray-700 rounded"></div>
+        </div>
+      </div>
+    );
+  }
 
   const toggleItem = (itemId: string) => {
     setExpandedItems(prevItems => 
@@ -594,6 +637,126 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Communication history card */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Communication History</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {communications.length === 0 ? (
+              <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">
+                No communications found for this lead.
+              </div>
+            ) : (
+              communications.map((comm, index) => (
+                <div
+                  key={comm.id}
+                  className="p-4 border rounded-lg"
+                >
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <h4 className="font-medium">
+                        {comm.title || comm.communicationType || (comm as any).messageType || 'Communication'}
+                      </h4>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                        {new Date(comm.timestamp).toLocaleString()} • 
+                        From: {comm.senderAdidOrEmail || (comm as any).sender || 'Unknown'} • 
+                        To: {comm.recipientAdidOrEmail || (comm as any).recipient || 'Unknown'}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => toggleItem(comm.id)}
+                    >
+                      {expandedItems.includes(comm.id) ? (
+                        <ChevronUp className="h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                  
+                  {expandedItems.includes(comm.id) && (
+                    <>
+                      <div className="p-3 bg-gray-50 dark:bg-[#1F1F23] rounded-md my-3">
+                        <p className="text-sm whitespace-pre-wrap">
+                          {comm.description || (comm as any).content || ''}
+                        </p>
+                      </div>
+                      
+                      {/* Display AI-generated information if available */}
+                      {(comm.aiSummary || comm.aiDecision) && (
+                        <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md">
+                          <div className="flex items-center mb-2">
+                            <Sparkles className="h-4 w-4 text-blue-500 mr-2" />
+                            <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                              AI Analysis
+                            </span>
+                          </div>
+                          
+                          {comm.aiSummary && (
+                            <div className="mb-2">
+                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                                Summary:
+                              </span>
+                              <span className="text-sm ml-2">
+                                {comm.aiSummary}
+                              </span>
+                            </div>
+                          )}
+                          
+                          {comm.aiDecision && (
+                            <div className="mb-2">
+                              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                                Suggested Next Action:
+                              </span>
+                              <span className="text-sm ml-2">
+                                {comm.aiDecision}
+                              </span>
+                            </div>
+                          )}
+                          
+                          {comm.aiTokensConsumed && (
+                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                              Tokens used: {comm.aiTokensConsumed}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {/* Attachments section (if any) */}
+                      {comm.attachments && comm.attachments.length > 0 && (
+                        <div className="mt-3">
+                          <h5 className="text-sm font-medium mb-2">Attachments:</h5>
+                          <div className="space-y-2">
+                            {comm.attachments.map((attachment, i) => (
+                              <div key={i} className="flex items-center p-2 border rounded-md bg-gray-50 dark:bg-[#1F1F23]">
+                                <FileText className="h-4 w-4 mr-2 text-gray-400" />
+                                <span className="text-sm">{attachment.name}</span>
+                                <span className="text-xs text-gray-500 ml-2">({attachment.size})</span>
+                                {attachment.url && (
+                                  <Button variant="ghost" size="sm" className="ml-auto h-6 px-2">
+                                    <Download className="h-3 w-3 mr-1" />
+                                    <span className="text-xs">Download</span>
+                                  </Button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 } 

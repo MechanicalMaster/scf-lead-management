@@ -204,6 +204,13 @@ export default function Sidebar() {
                       >
                         Error Code Master
                       </Link>
+                      <Link
+                        href="/masters/ai-prompts"
+                        onClick={handleNavigation}
+                        className="flex items-center py-2 text-sm transition-colors text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
+                      >
+                        AI Prompts Master
+                      </Link>
                     </div>
                   )}
                 </div>
