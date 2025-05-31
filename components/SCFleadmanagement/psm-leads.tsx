@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Eye, Edit2, Search, Filter, Download, ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react"
+import { Eye, Edit2, Search, Filter, Download, ChevronDown, ChevronUp, ArrowUpDown, CheckSquare, Square, X, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -10,10 +10,13 @@ import EditLeadModal from "./edit-lead-modal"
 import Link from "next/link"
 import { useAuth } from "@/components/auth-provider"
 import db from "@/lib/db"
-import { stageToFlagMap } from "@/lib/lead-workflow"
+import { stageToFlagMap, createLeadCommunication, updateWorkflowStateAfterCommunication } from "@/lib/lead-workflow"
 import { differenceInDays } from "date-fns"
 import { ProcessedLead, LeadWorkflowState } from "@/lib/db"
 import { safeDbOperation } from "@/lib/db-init"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 
 // Check if we're in a browser environment safely
 const isBrowser = () => {
@@ -49,6 +52,7 @@ const flagColors = {
   "With PSM": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
   "Under Progress": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
   "Dropped": "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
+  "Closed": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
 }
 
 // Helper function to calculate ageing bucket
@@ -76,6 +80,13 @@ export default function PSMLeads() {
   const [error, setError] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
   const [assignedFilter, setAssignedFilter] = useState<'all' | 'assigned' | 'unassigned'>('all')
+  
+  // Bulk close functionality
+  const [selectedLeads, setSelectedLeads] = useState<string[]>([])
+  const [isBulkCloseDialogOpen, setIsBulkCloseDialogOpen] = useState(false)
+  const [bulkCloseNotes, setBulkCloseNotes] = useState("")
+  const [isBulkClosing, setIsBulkClosing] = useState(false)
+  const [bulkCloseError, setBulkCloseError] = useState<string | null>(null)
 
   // Set mounted flag on client side
   useEffect(() => {
@@ -245,6 +256,9 @@ export default function PSMLeads() {
         const validLeads = leadResults.filter(lead => lead !== null) as Lead[];
         
         setActualLeads(validLeads);
+        
+        // Clear selected leads when leads are refreshed
+        setSelectedLeads([]);
       } catch (error) {
         console.error("Error fetching PSM actionable leads:", error);
         setError("Failed to load leads. Please try again later.");
@@ -304,6 +318,93 @@ export default function PSMLeads() {
     setAssignedFilter(assignedFilter);
   };
 
+  // Bulk selection handling
+  const toggleSelectLead = (leadId: string) => {
+    setSelectedLeads(prev => 
+      prev.includes(leadId) 
+        ? prev.filter(id => id !== leadId) 
+        : [...prev, leadId]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedLeads.length === sortedLeads.length) {
+      // Deselect all
+      setSelectedLeads([]);
+    } else {
+      // Select all
+      setSelectedLeads(sortedLeads.map(lead => lead.id));
+    }
+  };
+
+  // Handle bulk close
+  const openBulkCloseDialog = () => {
+    setBulkCloseNotes("");
+    setBulkCloseError(null);
+    setIsBulkCloseDialogOpen(true);
+  };
+
+  const handleBulkClose = async () => {
+    if (!user) return;
+    
+    try {
+      setIsBulkClosing(true);
+      setBulkCloseError(null);
+      
+      const now = new Date().toISOString();
+      const bulkClosePromises = selectedLeads.map(async (leadId) => {
+        try {
+          // Find the lead in our sorted leads array
+          const lead = sortedLeads.find(l => l.id === leadId);
+          if (!lead) return;
+          
+          // Set updates to close the lead
+          const updates = {
+            currentStage: "ClosedLead",
+            lastStageChangeTimestamp: now,
+            lastCommunicationTimestamp: now,
+            updatedAt: now
+          };
+          
+          // Update the workflow state
+          await db.lead_workflow_states.update(lead.workflowStateId, updates);
+          
+          // Create a communication record
+          await createLeadCommunication({
+            processedLeadId: lead.processedLeadId,
+            communicationType: 'PSM_Bulk_Closed_Lead',
+            title: 'Lead Bulk Closed by PSM',
+            description: bulkCloseNotes || 'Lead has been closed by PSM in bulk operation.',
+            senderType: 'PSM',
+            senderAdidOrEmail: user.id || 'unknown-psm',
+            recipientAdidOrEmail: 'system',
+            relatedWorkflowStateId: lead.workflowStateId
+          });
+          
+          return lead.id;
+        } catch (error) {
+          console.error(`Error closing lead ${leadId}:`, error);
+          return null;
+        }
+      });
+      
+      // Wait for all promises to resolve
+      await Promise.all(bulkClosePromises);
+      
+      // Close dialog and refresh leads
+      setIsBulkCloseDialogOpen(false);
+      setSelectedLeads([]);
+      
+      // Refresh the leads list
+      refreshLeads();
+    } catch (error) {
+      console.error("Error during bulk close:", error);
+      setBulkCloseError("Failed to bulk close leads. Please try again.");
+    } finally {
+      setIsBulkClosing(false);
+    }
+  };
+
   const SortIcon = ({ field }: { field: keyof Lead }) => {
     if (sortField !== field) return <ArrowUpDown className="ml-1 h-4 w-4" />
     return sortDirection === "asc" ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
@@ -340,6 +441,18 @@ export default function PSMLeads() {
               <DropdownMenuItem onClick={() => setAssignedFilter('unassigned')}>Unassigned</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          
+          {/* Bulk Actions Button - Only show when leads are selected */}
+          {selectedLeads.length > 0 && userRole === 'psm' && (
+            <Button 
+              variant="secondary" 
+              size="sm" 
+              className="gap-1"
+              onClick={openBulkCloseDialog}
+            >
+              Close Selected ({selectedLeads.length})
+            </Button>
+          )}
         </div>
       </div>
 
@@ -356,7 +469,7 @@ export default function PSMLeads() {
         </div>
       ) : actualLeads.length === 0 ? (
         <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] p-8 text-center">
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">No dropped leads found</h3>
+          <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">No leads found</h3>
           <p className="text-gray-600 dark:text-gray-400">
             There are currently no leads requiring PSM review or action.
           </p>
@@ -367,6 +480,21 @@ export default function PSMLeads() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 dark:border-[#1F1F23] bg-gray-50 dark:bg-[#1F1F23]">
+                  {userRole === 'psm' && (
+                    <th className="px-2 py-3 text-center">
+                      <div 
+                        className="cursor-pointer inline-flex" 
+                        onClick={toggleSelectAll}
+                        title={selectedLeads.length === sortedLeads.length ? "Deselect all" : "Select all"}
+                      >
+                        {selectedLeads.length === sortedLeads.length ? (
+                          <CheckSquare className="h-4 w-4 text-blue-500" />
+                        ) : (
+                          <Square className="h-4 w-4 text-gray-400" />
+                        )}
+                      </div>
+                    </th>
+                  )}
                   <th
                     className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
                     onClick={() => handleSort("id")}
@@ -439,6 +567,20 @@ export default function PSMLeads() {
                     key={lead.id}
                     className="hover:bg-gray-50 dark:hover:bg-[#1F1F23] transition-colors"
                   >
+                    {userRole === 'psm' && (
+                      <td className="px-2 py-3 text-center">
+                        <div 
+                          className="cursor-pointer inline-flex" 
+                          onClick={() => toggleSelectLead(lead.id)}
+                        >
+                          {selectedLeads.includes(lead.id) ? (
+                            <CheckSquare className="h-4 w-4 text-blue-500" />
+                          ) : (
+                            <Square className="h-4 w-4 text-gray-400" />
+                          )}
+                        </div>
+                      </td>
+                    )}
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{lead.processedLeadId.substring(0, 8)}...</td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.dealerName}</td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.anchorName}</td>
@@ -484,6 +626,7 @@ export default function PSMLeads() {
         </div>
       )}
 
+      {/* Edit Lead Modal */}
       {selectedLead && (
         <EditLeadModal 
           lead={selectedLead} 
@@ -492,6 +635,52 @@ export default function PSMLeads() {
           onSave={refreshLeads}
         />
       )}
+      
+      {/* Bulk Close Dialog */}
+      <Dialog open={isBulkCloseDialogOpen} onOpenChange={setIsBulkCloseDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Close {selectedLeads.length} Leads</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to close {selectedLeads.length} selected leads? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="mt-4">
+            <Label htmlFor="bulkCloseNotes">Notes (Optional)</Label>
+            <Textarea 
+              id="bulkCloseNotes" 
+              placeholder="Add notes about why these leads are being closed..." 
+              className="min-h-[100px] mt-1"
+              value={bulkCloseNotes}
+              onChange={(e) => setBulkCloseNotes(e.target.value)}
+            />
+          </div>
+          
+          {bulkCloseError && (
+            <div className="mt-2 p-3 text-sm flex items-center gap-2 text-red-600 bg-red-100 rounded-md dark:bg-red-900/30 dark:text-red-400">
+              <AlertCircle className="h-4 w-4" />
+              <span>{bulkCloseError}</span>
+            </div>
+          )}
+          
+          <DialogFooter className="mt-4">
+            <Button 
+              variant="outline" 
+              onClick={() => setIsBulkCloseDialogOpen(false)}
+              disabled={isBulkClosing}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleBulkClose}
+              disabled={isBulkClosing}
+            >
+              {isBulkClosing ? "Closing..." : `Close ${selectedLeads.length} Leads`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

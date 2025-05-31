@@ -30,6 +30,9 @@ export interface LeadCommunication {
     'SystemReminderEmail' | 
     'PSMDecision_ReassignToRM' | 
     'PSMDecision_DropLead' | 
+    'PSM_Sent_Back_To_RM' |
+    'PSM_Closed_Lead' |
+    'PSM_Bulk_Closed_Lead' |
     'StageUpdate' | 
     'AISystemAssessment' | 
     'NoteAdded';
@@ -60,6 +63,7 @@ export const stageToFlagMap: Record<string, string> = {
   
   // Other stages
   'Dropped': 'Dropped',
+  'ClosedLead': 'Closed',           // Lead has been closed by PSM
   // Add more mappings as needed
 };
 

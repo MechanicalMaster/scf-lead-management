@@ -555,9 +555,7 @@ export default function NewLeads() {
       </div>
 
       <Tabs defaultValue="bulkUpload" className="w-full">
-        <TabsList className="mb-4">
-          <TabsTrigger value="bulkUpload">Bulk Upload</TabsTrigger>          
-        </TabsList>
+       
         
         <TabsContent value="bulkUpload">
           <Card>

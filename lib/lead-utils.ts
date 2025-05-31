@@ -199,4 +199,51 @@ export async function getRMInboxEmails(rmAdid: string) {
     console.error('[getRMInboxEmails] Error getting RM inbox emails:', error);
     return [];
   }
+}
+
+/**
+ * Generate a simulated email content for PSM sending a lead back to RM
+ */
+export function generatePSMSendBackToRMEmail(
+  psmNotes: string,
+  leadDetails: Record<string, any>,
+  rmName: string,
+  psmName: string = "PSM",
+  dealerName: string = "Unknown Dealer",
+  anchorName: string = "Unknown Anchor"
+): string {
+  const today = new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+  
+  // Extract dealer and anchor name from leadDetails if available
+  const actualDealerName = dealerName || leadDetails["Name of the Firm"] || "Unknown Dealer";
+  const actualAnchorName = anchorName || leadDetails["Anchor Name"] || "Unknown Anchor";
+  
+  return `
+Subject: Lead Sent Back to RM - ${actualDealerName} with ${actualAnchorName}
+
+Dear ${rmName},
+
+PSM ${psmName} has sent a lead back to you on ${today}.
+
+LEAD DETAILS:
+- Dealer/Firm: ${actualDealerName}
+- Anchor: ${actualAnchorName}
+- Contact Person: ${leadDetails["Contact Person"] || "Not provided"}
+- Mobile: ${leadDetails["Mobile Number"] || "Not provided"}
+- Email: ${leadDetails["Email ID"] || "Not provided"}
+- City: ${leadDetails["City"] || "Not provided"}
+- Pincode: ${leadDetails["Pincode"] || "Not provided"}
+
+PSM NOTES:
+${psmNotes}
+
+Please take appropriate action on this lead at your earliest convenience.
+
+Regards,
+SCF Lead Management System
+`;
 } 
