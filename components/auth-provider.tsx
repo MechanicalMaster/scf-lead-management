@@ -4,7 +4,7 @@ import { createContext, useState, useEffect, useContext, ReactNode } from "react
 import { useRouter, usePathname } from "next/navigation"
 
 // Define available roles
-export type UserRole = "admin" | "rm" | "rm-inbox" | null
+export type UserRole = "admin" | "rm" | "rm-inbox" | "psm" | null
 
 interface User {
   id: string;
@@ -64,6 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           router.push("/rm-leads")
         } else if (userRole === "rm-inbox") {
           router.push("/rm-inbox")
+        } else if (userRole === "psm") {
+          router.push("/dashboard")
         } else {
           router.push("/dashboard")
         }
@@ -90,6 +92,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // RM-inbox users only have access to their inbox and lead details
     if (userRole === "rm-inbox") {
       return page === "/rm-inbox" || 
+             page.startsWith("/lead-details/")
+    }
+
+    // PSM users have access to dashboard, reports, new leads, rm leads, psm leads, and lead details
+    if (userRole === "psm") {
+      return page === "/dashboard" || 
+             page === "/reports" || 
+             page === "/new-leads" || 
+             page === "/rm-leads" || 
+             page === "/psm-leads" || 
              page.startsWith("/lead-details/")
     }
 

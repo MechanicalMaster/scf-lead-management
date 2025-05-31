@@ -85,7 +85,9 @@ export default function Sidebar() {
                     ? "Admin User" 
                     : userRole === "rm"
                       ? "RM User"
-                      : "RM Inbox User"}
+                      : userRole === "psm"
+                        ? "PSM User"
+                        : "RM Inbox User"}
                 </div>
               </div>
 

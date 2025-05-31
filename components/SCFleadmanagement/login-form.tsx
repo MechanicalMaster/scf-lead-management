@@ -15,6 +15,8 @@ const USERS = [
   { email: "rm1@yesbank.in", password: "password", role: "rm-inbox" as UserRole, id: "REM0000001" },
   { email: "rm2@yesbank.in", password: "password", role: "rm-inbox" as UserRole, id: "REM0000002" },
   { email: "rm3@yesbank.in", password: "password", role: "rm-inbox" as UserRole, id: "REM0000003" },
+  { email: "psm1@yesbank.in", password: "password", role: "psm" as UserRole, id: "PSM0000001" },
+  { email: "psm2@yesbank.in", password: "password", role: "psm" as UserRole, id: "PSM0000002" },
 ]
 
 export default function LoginForm() {
@@ -68,6 +70,8 @@ export default function LoginForm() {
           RM: rm@yesbank.in / password
           <br />
           RM Inbox Users: rm1@yesbank.in, rm2@yesbank.in, rm3@yesbank.in / password
+          <br />
+          PSM Users: psm1@yesbank.in, psm2@yesbank.in / password
         </p>
       </div>
       

@@ -249,32 +249,31 @@ export class SCFLeadManagementDB extends Dexie {
 
     // Version 6: Add ai_prompts_master table and update lead_communications table
     this.version(6).stores({
+      ai_prompts_master: 'id, name, category, prompt, systemPrompt, modelType',
+      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail, aiTokensConsumed',
       // Carry forward all table definitions from previous versions
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, currentAssigneeType, nextFollowUpTimestamp, updatedAt',
       anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
       hierarchy_master: 'id, employeeName, empAdid, fullName, rblAdid, rblName, region, zhAdid, zhName',
       holiday_master: 'id, Date, HolidayType, date, name, type, description',
       pincode_branch: 'id, pincode, branchCode, branchName, city, state, region, active',
       rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
       error_codes: '++id, errorCode, module, severity',
-      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode',
-      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail',
-      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, currentAssigneeType, nextFollowUpTimestamp, updatedAt',
-      ai_prompts_master: 'id, configName, serviceProvider, isActive'
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode'
     });
     
-    // Version 7: Remove ai_prompts_master table
+    // Version 7: Update lead_workflow_states to include psmAdid in the index
     this.version(7).stores({
-      // Carry forward all table definitions from previous versions
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, psmAdid, currentAssigneeType, nextFollowUpTimestamp, updatedAt',
+      ai_prompts_master: 'id, name, category, prompt, systemPrompt, modelType',
+      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail, aiTokensConsumed',
       anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
       hierarchy_master: 'id, employeeName, empAdid, fullName, rblAdid, rblName, region, zhAdid, zhName',
       holiday_master: 'id, Date, HolidayType, date, name, type, description',
       pincode_branch: 'id, pincode, branchCode, branchName, city, state, region, active',
       rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
       error_codes: '++id, errorCode, module, severity',
-      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode',
-      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail',
-      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, currentAssigneeType, nextFollowUpTimestamp, updatedAt',
-      ai_prompts_master: null // This line ensures the table is removed on upgrade
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode'
     });
   }
 }

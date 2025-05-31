@@ -94,8 +94,8 @@ export default function RMLeads() {
         let processedLeads: ProcessedLead[] = [];
         
         // Fetch leads based on user role safely
-        if (userRole === "admin") {
-          // Admin can see all leads
+        if (userRole === "admin" || userRole === "psm") {
+          // Admin and PSM can see all leads
           processedLeads = await safeDbOperation(
             () => db.processed_leads.toArray(),
             [] // Empty array as fallback

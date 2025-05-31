@@ -48,10 +48,17 @@ export interface LeadCommunication {
 
 // Map of workflow stages to flag display values
 export const stageToFlagMap: Record<string, string> = {
+  // RM stages
   'RM_AssignmentEmailPending': 'With RM',
   'RM_AwaitingReply': 'With RM',
   'RM_ReassignmentEmailPending': 'With RM',
-  'PSM_ReviewPending': 'With PSM',
+  
+  // PSM stages - for leads requiring PSM review or action
+  'PSM_ReviewPending': 'With PSM',   // Lead has been escalated to PSM for review
+  'PSM_Assigned': 'With PSM',        // Lead has been explicitly assigned to a PSM
+  'PSM_AwaitingAction': 'With PSM',  // Lead is waiting for PSM to take action
+  
+  // Other stages
   'Dropped': 'Dropped',
   // Add more mappings as needed
 };

@@ -82,33 +82,37 @@ export default function PSMLeads() {
     setMounted(true)
   }, [])
 
-  // Fetch leads data for PSM - specifically dropped leads
+  // Fetch leads data for PSM - specifically leads requiring PSM action
   useEffect(() => {
     // Skip fetching on server-side or if not mounted
     if (!isBrowser() || !mounted) return;
     
-    const fetchDroppedLeads = async () => {
+    const fetchPSMActionableLeads = async () => {
       if (!user) return;
       
       try {
         setIsLoading(true);
         setError(null);
         
-        // Get all workflow states where currentStage is 'Dropped'
-        const droppedWorkflowStates = await safeDbOperation(
+        // Get all workflow states where currentStage is related to PSM action
+        const psmActionableStages = ['PSM_ReviewPending', 'PSM_Assigned', 'PSM_AwaitingAction', 'Dropped'];
+        
+        // Get all workflow states with PSM-related stages
+        const psmWorkflowStates = await safeDbOperation(
           () => db.lead_workflow_states
             .where("currentStage")
-            .equals("Dropped")
+            .anyOf(psmActionableStages)
             .toArray(),
           [] // Empty array as fallback
         );
         
-        console.log(`Found ${droppedWorkflowStates.length} dropped leads`);
+        console.log(`Found ${psmWorkflowStates.length} PSM actionable leads`);
         
-        // Filter by PSM ID if 'assigned' filter is active
-        let filteredWorkflowStates = droppedWorkflowStates;
-        if (assignedFilter === 'assigned' && user.id) {
-          filteredWorkflowStates = droppedWorkflowStates.filter(
+        // Filter by PSM ID if user is a PSM and 'assigned' filter is active
+        let filteredWorkflowStates = psmWorkflowStates;
+        
+        if (userRole === "psm" && assignedFilter === 'assigned' && user.id) {
+          filteredWorkflowStates = psmWorkflowStates.filter(
             state => state.psmAdid === user.id
           );
           console.log(`Filtered to ${filteredWorkflowStates.length} leads assigned to PSM ${user.id}`);
@@ -242,15 +246,16 @@ export default function PSMLeads() {
         
         setActualLeads(validLeads);
       } catch (error) {
-        console.error("Error fetching dropped leads:", error);
+        console.error("Error fetching PSM actionable leads:", error);
         setError("Failed to load leads. Please try again later.");
       } finally {
         setIsLoading(false);
       }
     };
     
-    fetchDroppedLeads();
-  }, [user, mounted, assignedFilter]);
+    // Call the fetch function
+    fetchPSMActionableLeads();
+  }, [user, userRole, assignedFilter, mounted]);
 
   const handleSort = (field: keyof Lead) => {
     if (sortField === field) {
@@ -307,7 +312,7 @@ export default function PSMLeads() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">PSM Leads (Dropped)</h1>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Leads for PSM Review</h1>
 
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           <div className="relative w-full sm:w-64">
@@ -353,7 +358,7 @@ export default function PSMLeads() {
         <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] p-8 text-center">
           <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">No dropped leads found</h3>
           <p className="text-gray-600 dark:text-gray-400">
-            There are currently no leads in the dropped status.
+            There are currently no leads requiring PSM review or action.
           </p>
         </div>
       ) : (

@@ -33,7 +33,7 @@ interface ReportType {
   icon: React.ReactNode
   format: string[]
   lastUpdated: string
-  roles: Array<"admin" | "rm">
+  roles: Array<"admin" | "rm" | "psm">
 }
 
 export default function Reports() {
@@ -50,7 +50,7 @@ export default function Reports() {
       icon: <FileBarChart className="h-5 w-5" />,
       format: ["xlsx"],
       lastUpdated: "Today at 09:30 AM",
-      roles: ["admin", "rm"],
+      roles: ["admin", "rm", "psm"],
     },
     {
       id: "application-status",
@@ -59,7 +59,7 @@ export default function Reports() {
       icon: <FilePieChart className="h-5 w-5" />,
       format: ["xlsx"],
       lastUpdated: "Today at 09:30 AM",
-      roles: ["admin", "rm"],
+      roles: ["admin", "rm", "psm"],
     },
     {
       id: "rejected-leads",
@@ -68,7 +68,7 @@ export default function Reports() {
       icon: <FileSpreadsheet className="h-5 w-5" />,
       format: ["xlsx"],
       lastUpdated: "Today at 09:30 AM",
-      roles: ["admin", "rm"],
+      roles: ["admin", "rm", "psm"],
     },
     {
       id: "lead-aging",
@@ -77,7 +77,7 @@ export default function Reports() {
       icon: <AlarmClock className="h-5 w-5" />,
       format: ["xlsx"],
       lastUpdated: "Today at 09:30 AM",
-      roles: ["admin", "rm"],
+      roles: ["admin", "rm", "psm"],
     },
     {
       id: "rm-performance",
@@ -101,7 +101,7 @@ export default function Reports() {
 
   // Filter reports based on user role
   const filteredReports = reportTypes.filter(report => 
-    report.roles.includes(userRole as "admin" | "rm")
+    report.roles.includes(userRole as "admin" | "rm" | "psm")
   );
 
   const handleDownload = (reportId: string, format: string) => {

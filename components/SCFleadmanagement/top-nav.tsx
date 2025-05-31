@@ -15,7 +15,7 @@ import { useAuth } from "@/components/auth-provider"
 
 export default function TopNav() {
   const { theme, setTheme } = useTheme()
-  const { userEmail, logout } = useAuth()
+  const { userEmail, userRole, logout } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   
   // Generate initials from email
@@ -25,6 +25,17 @@ export default function TopNav() {
     if (parts.length === 0) return "U";
     const name = parts[0];
     return name.substring(0, 2).toUpperCase();
+  };
+
+  // Get user role display text
+  const getRoleDisplay = () => {
+    switch (userRole) {
+      case "admin": return "Admin";
+      case "rm": return "RM User";
+      case "rm-inbox": return "RM Inbox User";
+      case "psm": return "PSM User";
+      default: return "User";
+    }
   };
 
   return (
@@ -68,7 +79,7 @@ export default function TopNav() {
               </Avatar>
               <div>
                 <p className="text-sm font-medium">{userEmail}</p>
-                <p className="text-xs text-muted-foreground">RM Admin</p>
+                <p className="text-xs text-muted-foreground">{getRoleDisplay()}</p>
               </div>
             </div>
             <DropdownMenuItem className="cursor-pointer" onClick={() => logout()}>
