@@ -61,6 +61,9 @@ export const stageToFlagMap: Record<string, string> = {
   'PSM_Assigned': 'With PSM',        // Lead has been explicitly assigned to a PSM
   'PSM_AwaitingAction': 'With PSM',  // Lead is waiting for PSM to take action
   
+  // Admin Review stage
+  'AdminReviewPending': 'Program Review', // Lead requires admin/program review
+  
   // Other stages
   'Dropped': 'Dropped',
   'ClosedLead': 'Closed',           // Lead has been closed by PSM
@@ -337,6 +340,11 @@ export async function createRMReplyCommunication(
         if (aiDecision === 'Dealer Not Interested') {
           newStage = 'Dropped';
           updates.droppedReason = 'AI: Dealer Not Interested';
+        } else if (aiDecision === 'Admin Review') {
+          newStage = 'AdminReviewPending';
+          // Set current assignee to the system for admin review
+          updates.currentAssigneeType = 'System';
+          updates.currentAssigneeAdid = 'system'; // Will be reassigned by admin
         } else if (aiDecision === 'FollowUp') {
           newStage = 'RM_AwaitingReply';
           // Set next follow-up timestamp to 2 days from now

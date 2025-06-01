@@ -2,14 +2,14 @@ import OpenAI from 'openai';
 
 // Define constants for hardcoded prompts and settings
 const PROMPT_SUMMARY_TEMPLATE = "Please provide a concise 2-3 word summary of this RM reply: {reply_text}";
-const PROMPT_NEXT_ACTION_TEMPLATE = "Based on this RM reply, determine if the dealer is interested in a follow-up or not. Reply with ONLY \"FollowUp\" if follow-up is needed, or \"Dealer Not Interested\" if the dealer is expressing disinterest or rejection: {reply_text}";
+const PROMPT_NEXT_ACTION_TEMPLATE = "Based on this RM reply, determine the appropriate next action. Reply with ONLY one of these options:\n1. \"FollowUp\" if follow-up is needed\n2. \"Dealer Not Interested\" if the dealer is expressing disinterest or rejection\n3. \"Admin Review\" if you're unsure about the next action or if the reply indicates a wrong assignment (e.g., \"This lead is not for me\", \"Please reassign\", \"This is not my territory\")\n\nReply text: {reply_text}";
 const DEFAULT_MODEL = "gpt-3.5-turbo";
 const API_ENDPOINT = "https://api.openai.com/v1";
 
 // Define the response type for AI analysis
 export interface AIAnalysisResult {
   summary: string;
-  nextActionPrediction: 'FollowUp' | 'Dealer Not Interested';
+  nextActionPrediction: 'FollowUp' | 'Dealer Not Interested' | 'Admin Review';
   tokensConsumed: number;
 }
 
@@ -68,7 +68,7 @@ export async function getAiAnalysisForReply(replyText: string): Promise<AIAnalys
     const nextActionResponse = await openai.chat.completions.create({
       model: DEFAULT_MODEL,
       messages: [
-        { role: 'system', content: 'You are an assistant that analyzes dealer responses. Respond with only "FollowUp" or "Dealer Not Interested".' },
+        { role: 'system', content: 'You are an assistant that analyzes dealer responses. Respond with only "FollowUp", "Dealer Not Interested", or "Admin Review".' },
         { role: 'user', content: nextActionPrompt }
       ],
       max_tokens: 20,
@@ -85,9 +85,11 @@ export async function getAiAnalysisForReply(replyText: string): Promise<AIAnalys
     console.log(`[AI Service] Extracted next action raw: "${nextActionRaw}"`);
     
     // Normalize the next action prediction
-    let nextActionPrediction: 'FollowUp' | 'Dealer Not Interested';
+    let nextActionPrediction: 'FollowUp' | 'Dealer Not Interested' | 'Admin Review';
     if (nextActionRaw.includes('Not Interested') || nextActionRaw.toLowerCase().includes('not interested')) {
       nextActionPrediction = 'Dealer Not Interested';
+    } else if (nextActionRaw.includes('Admin Review') || nextActionRaw.toLowerCase().includes('admin review')) {
+      nextActionPrediction = 'Admin Review';
     } else {
       nextActionPrediction = 'FollowUp';
     }
@@ -133,6 +135,8 @@ export async function getAiAnalysisForReply(replyText: string): Promise<AIAnalys
 export function mapAIDecisionToWorkflowStage(aiDecision: string): string {
   if (aiDecision === 'Dealer Not Interested') {
     return 'Dropped';
+  } else if (aiDecision === 'Admin Review') {
+    return 'AdminReviewPending';
   } else {
     return 'RM_AwaitingReply';
   }

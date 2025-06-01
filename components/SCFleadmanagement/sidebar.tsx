@@ -87,7 +87,7 @@ export default function Sidebar() {
                       ? "RM User"
                       : userRole === "psm"
                         ? "PSM User"
-                        : "RM Inbox User"}
+                      : "RM Inbox User"}
                 </div>
               </div>
 
@@ -121,6 +121,9 @@ export default function Sidebar() {
                   </NavItem>
                   <NavItem href="/psm-leads" icon={Users}>
                     PSM Leads
+                  </NavItem>
+                  <NavItem href="/program-review" icon={Users}>
+                    Program Review
                   </NavItem>
                 </div>
               </div>

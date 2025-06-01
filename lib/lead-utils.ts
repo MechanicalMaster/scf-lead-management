@@ -199,7 +199,7 @@ export async function getRMInboxEmails(rmAdid: string) {
     console.error('[getRMInboxEmails] Error getting RM inbox emails:', error);
     return [];
   }
-}
+} 
 
 /**
  * Generate a simulated email content for PSM sending a lead back to RM
