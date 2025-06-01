@@ -1,5 +1,6 @@
 import Dexie from 'dexie';
 import db from './db';
+import dbUtils from './dbUtils';
 
 // Helper function to migrate old lead communications to new format
 async function migrateLeadCommunications() {
@@ -292,5 +293,47 @@ export default function setupDatabase() {
     }, 0);
   } else {
     console.log('Database setup skipped (server-side)');
+  }
+}
+
+// Add this function after the initializeDatabase function
+export async function resetDatabase() {
+  if (!isBrowser()) {
+    console.log('Cannot reset database on server side');
+    return;
+  }
+  
+  try {
+    console.log('Closing database...');
+    await db.close();
+    
+    console.log('Deleting database...');
+    await new Promise<void>((resolve, reject) => {
+      const deleteRequest = window.indexedDB.deleteDatabase('SCFLeadManagement');
+      
+      deleteRequest.onerror = (event) => {
+        console.error('Error deleting database:', event);
+        reject(new Error('Failed to delete database'));
+      };
+      
+      deleteRequest.onsuccess = () => {
+        console.log('Database deleted successfully');
+        resolve();
+      };
+    });
+    
+    // Reopen the database with the fresh schema
+    console.log('Reopening database with new schema...');
+    await db.open();
+    console.log('Database reopened with fresh schema');
+    
+    // Initialize database with sample data
+    await dbUtils.initializeDBIfEmpty();
+    console.log('Database initialization complete after reset');
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error resetting database:', error);
+    return { success: false, error };
   }
 } 

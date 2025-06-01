@@ -58,4 +58,16 @@ export const SMARTFIN_UPDATE_TEMPLATE_HEADERS = [
   "Approval Requested Date",
   "Approval TAT",
   "Total TAT"
+];
+
+// Template headers for Email Template Master
+export const EMAIL_TEMPLATE_MASTER_HEADERS = [
+  "Template Name",
+  "Description",
+  "Subject",
+  "Body",
+  "To Recipients",
+  "CC Recipients",
+  "Category",
+  "Is Active"
 ]; 

@@ -6,8 +6,8 @@
 import Dexie, { Table } from 'dexie';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
-import { LEAD_TEMPLATE_HEADERS, SMARTFIN_UPDATE_TEMPLATE_HEADERS } from './constants';
-import { mapAnchorUIToDB, mapHierarchyUIToDB, mapHolidayUIToDB, mapPincodeBranchUIToDB, mapRMBranchUIToDB, mapErrorCodeUIToDB, mapSmartfinStatusUpdateUIToDB } from './dbUtils';
+import { LEAD_TEMPLATE_HEADERS, SMARTFIN_UPDATE_TEMPLATE_HEADERS, EMAIL_TEMPLATE_MASTER_HEADERS } from './constants';
+import { mapAnchorUIToDB, mapHierarchyUIToDB, mapHolidayUIToDB, mapPincodeBranchUIToDB, mapRMBranchUIToDB, mapErrorCodeUIToDB, mapSmartfinStatusUpdateUIToDB, mapEmailTemplateUIToDB } from './dbUtils';
 
 // --- TypeScript interfaces for master data stores ---
 export interface AnchorMaster {
@@ -231,6 +231,20 @@ export interface SmartfinStatusUpdate {
   uploadTimestamp?: string; // When the record was uploaded
 }
 
+export interface EmailTemplateMaster {
+  id: string; // Primary Key, e.g., UUID
+  templateName: string; // e.g., "Lead Assignment Email"
+  description?: string; // Brief explanation of the template's purpose
+  subject: string; // Email subject line
+  body: string; // Email content, can be plain text or HTML
+  toRecipients: string[]; // Array of roles/placeholders, e.g., ["RM"], ["{{Lead.RMEmail}}"]
+  ccRecipients: string[]; // Array of roles/placeholders, e.g., ["CBL", "RBL"]
+  category?: string; // e.g., "Assignment", "Escalation", "Notification"
+  isActive: boolean; // Default to true
+  createdAt: string; // ISO string, for tracking when it was added
+  updatedAt: string; // ISO string, for tracking updates
+}
+
 type StoreName = 
   'anchor_master' | 
   'hierarchy_master' | 
@@ -241,7 +255,8 @@ type StoreName =
   'processed_leads' | 
   'lead_communications' |
   'lead_workflow_states' |
-  'smartfin_status_updates';
+  'smartfin_status_updates' |
+  'email_template_master';
 
 type StoreTableMap = {
   anchor_master: AnchorMaster;
@@ -254,6 +269,7 @@ type StoreTableMap = {
   lead_communications: LeadCommunication;
   lead_workflow_states: LeadWorkflowState;
   smartfin_status_updates: SmartfinStatusUpdate;
+  email_template_master: EmailTemplateMaster;
 };
 
 // --- Dexie Database Setup ---
@@ -268,6 +284,7 @@ export class SCFLeadManagementDB extends Dexie {
   lead_communications!: Table<LeadCommunication, string>;
   lead_workflow_states!: Table<LeadWorkflowState, string>;
   smartfin_status_updates!: Table<SmartfinStatusUpdate, string>;
+  email_template_master!: Table<EmailTemplateMaster, string>;
 
   constructor() {
     super('SCFLeadManagement');
@@ -541,6 +558,24 @@ export class SCFLeadManagementDB extends Dexie {
       rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
       error_codes: '++id, errorCode, module, severity'
     });
+
+    // Version 12: Add email_template_master table
+    this.version(12).stores({
+      // Define a completely new table with a clear primary key
+      email_template_master: 'id, templateName, category, isActive',
+      
+      // Keep existing tables with their original primary keys - don't modify them
+      anchor_master: 'id, anchorname, programname, segment',
+      hierarchy_master: 'id, EmpADID, FullName, YesEmail, RBLADIDCode, RBLName, ZHADID, ZHName, CBLCodeADID',
+      holiday_master: 'id, date, Date, type, HolidayType',
+      pincode_branch: 'id, Pincode, BranchCode, BranchName, Region',
+      rm_branch: 'id, rmId, rmName, branchCode, region, active',
+      error_codes: 'id, errorCode, module, severity',
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus',
+      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail, recipientAdidOrEmail, leadId, rmEmail, messageType',
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeType, currentAssigneeAdid, psmAdid, updatedAt',
+      smartfin_status_updates: 'applicationNo, firmName, status, rmName, createdDate',
+    });
   }
 }
 
@@ -561,7 +596,8 @@ const STORE_FIELDS: Record<StoreName, string[]> = {
   processed_leads: [],  // No direct upload via master UI, populated programmatically
   lead_communications: ['id', 'leadId', 'rmEmail', 'messageType', 'content', 'timestamp', 'sender', 'recipient', 'processedLeadId', 'communicationType', 'title', 'description', 'senderType', 'senderAdidOrEmail', 'recipientAdidOrEmail', 'ccEmails', 'aiSummary', 'aiDecision', 'aiTokensConsumed', 'attachments', 'relatedWorkflowStateId'],
   lead_workflow_states: ['id', 'processedLeadId', 'currentStage', 'currentAssigneeType', 'currentAssigneeAdid', 'psmAdid', 'lastStageChangeTimestamp', 'lastCommunicationTimestamp', 'nextFollowUpTimestamp', 'escalationLevel', 'droppedReason', 'updatedAt', 'createdAt'],
-  smartfin_status_updates: ['applicationNo', 'createdDate', 'firmName', 'applicationType', 'status', 'branch', 'requestedAmount', 'sanctionedAmount', 'sanctionDate', 'programMappedDate', 'rmName', 'rmTAT', 'cpaName', 'cpaTAT', 'cmName', 'cmTAT', 'approvalRequestedDate', 'approvalTAT', 'totalTAT', 'uploadTimestamp']
+  smartfin_status_updates: ['applicationNo', 'createdDate', 'firmName', 'applicationType', 'status', 'branch', 'requestedAmount', 'sanctionedAmount', 'sanctionDate', 'programMappedDate', 'rmName', 'rmTAT', 'cpaName', 'cpaTAT', 'cmName', 'cmTAT', 'approvalRequestedDate', 'approvalTAT', 'totalTAT', 'uploadTimestamp'],
+  email_template_master: ['id', 'templateName', 'category', 'isActive', 'description', 'subject', 'body', 'toRecipients', 'ccRecipients', 'createdAt', 'updatedAt'],
 };
 
 // --- MasterService Class ---
@@ -810,6 +846,10 @@ export class MasterService {
       } else if (storeName === 'smartfin_status_updates') {
         for (let i = 0; i < processedData.length; i += 100) {
           await db.smartfin_status_updates.bulkPut(processedData.slice(i, i + 100));
+        }
+      } else if (storeName === 'email_template_master') {
+        for (let i = 0; i < processedData.length; i += 100) {
+          await db.email_template_master.bulkPut(processedData.slice(i, i + 100));
         }
       }
       
