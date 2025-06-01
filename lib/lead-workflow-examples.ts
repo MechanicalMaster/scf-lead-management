@@ -19,18 +19,18 @@ export async function handleNewLeadAssignment(
   processedLeadId: string,
   rmAdid: string,
   rmEmail: string,
-  psmAdid: string
+  psmAdid: string | undefined
 ): Promise<void> {
   try {
     console.log(`[Lead Workflow] Starting lead assignment workflow for lead ${processedLeadId}`);
-    console.log(`[Lead Workflow] RM: ${rmAdid} (${rmEmail}), PSM: ${psmAdid}`);
+    console.log(`[Lead Workflow] RM: ${rmAdid} (${rmEmail}), PSM: ${psmAdid || 'Unknown'}`);
     
     // 1. Create a workflow state record for the lead
     console.log(`[Lead Workflow] Creating workflow state record...`);
     const workflowState = await createLeadWorkflowState(
       processedLeadId,
       rmAdid,
-      psmAdid
+      psmAdid || 'PSM001'
     );
     console.log(`[Lead Workflow] Created workflow state with ID: ${workflowState.id}`);
     
@@ -77,6 +77,7 @@ export async function handleRMReply(
     // 2. Create a simulated AI analysis (in real app, call AI service)
     const aiSummary = `Analyzed RM reply: ${replyContent.substring(0, 50)}...`;
     const aiDecision = "Response acknowledged. Continue monitoring.";
+    const aiTokensConsumed = 150; // Simulated token count
     
     // 3. Log the RM reply with AI analysis
     const communication = await createRMReplyCommunication(
@@ -85,6 +86,7 @@ export async function handleRMReply(
       replyContent,
       aiSummary,
       aiDecision,
+      aiTokensConsumed,
       attachments
     );
     

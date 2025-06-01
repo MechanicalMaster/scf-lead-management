@@ -18,10 +18,11 @@ import { saveAs } from 'file-saver';
 import { LEAD_TEMPLATE_HEADERS, ERROR_CODES } from "@/lib/constants"
 import type { PincodeBranch, RMBranch, ErrorCodeMaster, ProcessedLead } from "@/lib/db"
 import { v4 as uuidv4 } from 'uuid';
-import { handleNewLeadAssignment } from "@/lib/lead-workflow-examples"
-import { getEmailFromRmAdid, getPSMDetailsFromAnchor } from "@/lib/lead-utils"
+import { getEmailFromRmAdid, getPSMDetailsFromAnchor, safeHandleNewLeadAssignment } from "@/lib/lead-utils"
+import { uploadLeadToSmartfin } from "@/lib/smartfin-api"
 
 type UploadStatus = "idle" | "processing" | "validating" | "partial" | "success" | "failed"
+type SmartfinUploadStatus = "idle" | "processing" | "partial" | "success" | "failed"
 type RowStatus = "success" | "failed" | "warning"
 
 interface UploadResultRow {
@@ -32,6 +33,9 @@ interface UploadResultRow {
   assignedRmAdid?: string; // The finally assigned RM ADID
   status: RowStatus; // UI status: 'success', 'failed'
   error?: string; // This will be the errorDescription for UI
+  smartfinStatus?: 'pending' | 'success' | 'failed'; // Smartfin upload status
+  smartfinDealerId?: string; // Smartfin Dealer ID if successful
+  smartfinError?: string; // Smartfin error description if failed
 }
 
 interface UploadResult {
@@ -42,6 +46,14 @@ interface UploadResult {
   uploadBatchId?: string; // Added to link with processed leads
 }
 
+interface SmartfinUploadResult {
+  total: number;
+  success: number;
+  failed: number;
+  rows: UploadResultRow[]; // For UI display with Smartfin status
+  uploadBatchId: string; // Same as the original upload batch ID
+}
+
 interface UploadHistoryItem {
   fileName: string
   uploadDate: string
@@ -49,12 +61,22 @@ interface UploadHistoryItem {
   status: "Success" | "Failure"
   responseFile: string
   uploadBatchId?: string // Added for reference to processed leads
+  uploadStep?: 'local_processing' | 'smartfin_upload' // Added to differentiate between the two types of uploads
 }
+
+// Near the top of the file, before the SmartfinUpload function
+// Add a helper function to ensure we have non-undefined values
+const ensureString = (value: string | null | undefined): string => {
+  return value || '';
+};
 
 export default function NewLeads() {
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("idle")
+  const [smartfinUploadStatus, setSmartfinUploadStatus] = useState<SmartfinUploadStatus>("idle")
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null)
+  const [smartfinUploadResult, setSmartfinUploadResult] = useState<SmartfinUploadResult | null>(null)
+  const [showSmartfinUploadButton, setShowSmartfinUploadButton] = useState<boolean>(false)
   const [anchorNamesList, setAnchorNamesList] = useState<string[]>([])
   const [programNamesList, setProgramNamesList] = useState<string[]>([])
   const [selectedAnchor, setSelectedAnchor] = useState<string>("")
@@ -153,6 +175,7 @@ export default function NewLeads() {
     }
 
     setUploadStatus("processing");
+    setShowSmartfinUploadButton(false); // Reset the Smartfin upload button visibility
     console.log("=== Starting lead upload process ===");
     console.log(`Selected anchor: ${selectedAnchor}, program: ${selectedProgram}`);
 
@@ -238,7 +261,11 @@ export default function NewLeads() {
           assignedRmAdid: null,
           assignmentStatus: "",
           errorCode: null,
-          errorDescription: null
+          errorDescription: null,
+          smartfinUploadStatus: null, // Initialize Smartfin fields
+          smartfinDealerId: null,
+          smartfinErrorCode: null,
+          smartfinErrorDescription: null
         };
         
         // Initialize UI row object
@@ -336,111 +363,299 @@ export default function NewLeads() {
           uiRow.error = processedLeadEntry.errorDescription || "Unknown error";
         }
         
-        // Add to arrays
-        leadsToPersist.push(processedLeadEntry as ProcessedLead);
-        uploadResult.rows.push(uiRow);
-      }
-      
-      // Save all processed leads to database
-      try {
-        console.log(`Saving ${leadsToPersist.length} processed leads to database...`);
-        // Using the processed_leads table we created
-        await db.processed_leads.bulkAdd(leadsToPersist);
-        console.log(`Successfully saved ${leadsToPersist.length} leads to database`);
-        
-        console.log("=== Starting email generation for assigned leads ===");
-        // Add new code here to create lead workflow records with emails
-        // Process each successful lead assignment
-        let emailSuccessCount = 0;
-        let emailFailCount = 0;
-        
-        for (const lead of leadsToPersist) {
-          // Only process leads that have been successfully assigned to an RM
-          if (lead.assignmentStatus === "RM Assigned (Manual)" || lead.assignmentStatus === "RM Assigned (Auto)") {
-            try {
-              console.log(`Processing lead ${lead.id} for email...`);
-              // Get the RM's email
-              const rmAdid = lead.assignedRmAdid as string;
-              console.log(`Getting email for RM ${rmAdid}...`);
-              const rmEmail = await getEmailFromRmAdid(rmAdid);
-              console.log(`Found RM email: ${rmEmail}`);
-              
-              // Get PSM details for the anchor
-              console.log(`Getting PSM details for anchor ${lead.anchorNameSelected}...`);
-              const [psmAdid, psmEmail] = await getPSMDetailsFromAnchor(lead.anchorNameSelected);
-              console.log(`Found PSM: ${psmAdid} (${psmEmail})`);
-              
-              // Create the workflow record and send the simulated email
-              console.log(`Creating workflow record and sending email notification...`);
-              await handleNewLeadAssignment(lead.id, rmAdid, rmEmail, psmAdid);
-              
-              console.log(`✅ Email successfully sent for lead ${lead.id} to RM ${rmAdid} (${rmEmail})`);
-              emailSuccessCount++;
-            } catch (error) {
-              // Log the error but don't fail the overall upload
-              console.error(`❌ Error creating lead workflow for ${lead.id}:`, error);
-              emailFailCount++;
-            }
-          } else {
-            console.log(`Skipping email for lead ${lead.id} - assignment status: ${lead.assignmentStatus}`);
-          }
+        // If the lead was successfully assigned (either by RM ADID or by pincode lookup),
+        // set its smartfinUploadStatus to 'pending' instead of calling handleNewLeadAssignment immediately
+        if (processedLeadEntry.assignmentStatus === "RM Assigned (Auto)" || 
+            processedLeadEntry.assignmentStatus === "RM Assigned (Manual)") {
+          processedLeadEntry.smartfinUploadStatus = 'pending';
         }
         
-        console.log(`=== Email generation summary ===`);
-        console.log(`Total leads processed: ${leadsToPersist.length}`);
-        console.log(`Emails sent successfully: ${emailSuccessCount}`);
-        console.log(`Emails failed: ${emailFailCount}`);
+        // Store the processed lead
+        leadsToPersist.push(processedLeadEntry as ProcessedLead);
         
-      } catch (dbError) {
-        console.error("Error saving processed leads:", dbError);
+        // Add the row to the UI results
+        uploadResult.rows.push({
+          rowNumber: originalRowNumber,
+          dealerId: String(originalRow["Name of the Firm"] || `Row ${originalRowNumber}`),
+          anchorId: String(originalRow["PAN Number"] || ""),
+          rmName: String(originalRow["RM ADID"] || ""),
+          assignedRmAdid: processedLeadEntry.assignedRmAdid || undefined,
+          status: processedLeadEntry.errorCode ? "failed" : "success",
+          error: processedLeadEntry.errorDescription || undefined
+        });
       }
       
-      // Update the UI with the result
+      console.log(`Processing complete. Success: ${uploadResult.success}, Failed: ${uploadResult.failed}, Total: ${uploadResult.total}`);
+      console.log(`Verification check: Success + Failed = ${uploadResult.success + uploadResult.failed}, should equal Total: ${uploadResult.total}`);
+      
+      // Bulk save processed leads to database
+      await db.processed_leads.bulkAdd(leadsToPersist);
+      console.log(`Saved ${leadsToPersist.length} processed leads to database`);
+      
+      // Update UI state
       setUploadResult(uploadResult);
       
-      // Determine overall upload status
-      const status = uploadResult.failed === 0 ? "Success" : "Failure";
+      // Determine upload status based on results
+      if (uploadResult.success === 0) {
+        setUploadStatus("failed");
+      } else if (uploadResult.failed > 0) {
+        setUploadStatus("partial");
+      } else {
+        setUploadStatus("success");
+      }
       
-      // Format current date (e.g., "10-Apr-2025")
-      const currentDate = new Date();
-      const options: Intl.DateTimeFormatOptions = { 
-        day: '2-digit', 
-        month: 'short', 
-        year: 'numeric' 
-      };
-      const formattedDate = currentDate.toLocaleDateString('en-US', options)
-        .replace(/(\d+) (\w+) (\d+)/, '$1-$2-$3');
+      // Show Smartfin upload button if there are successful leads
+      if (uploadResult.success > 0) {
+        setShowSmartfinUploadButton(true);
+      }
       
-      // Create new history entry
-      const newHistoryEntry: UploadHistoryItem = {
+      // Add to upload history
+      const newHistoryItem: UploadHistoryItem = {
         fileName: selectedFile.name,
-        uploadDate: formattedDate,
+        uploadDate: new Date().toISOString(),
         uploadedBy: userEmail || "Unknown User",
-        status: status as "Success" | "Failure",
-        responseFile: `${selectedFile.name.split('.')[0]}_result.xlsx`,
+        status: uploadResult.failed === 0 ? "Success" : "Failure",
+        responseFile: `${selectedFile.name.split('.')[0]}_response.xlsx`,
+        uploadBatchId,
+        uploadStep: 'local_processing'
+      };
+      
+      setUploadHistory(prev => [newHistoryItem, ...prev]);
+      
+    } catch (error) {
+      console.error("Error in lead upload process:", error);
+      setUploadStatus("failed");
+    }
+  };
+
+  // New function to handle Smartfin upload
+  const handleSmartfinUpload = async () => {
+    if (!uploadResult || !uploadResult.uploadBatchId) {
+      alert("No upload batch to process");
+      return;
+    }
+    
+    setSmartfinUploadStatus("processing");
+    console.log("=== Starting Smartfin upload process ===");
+    
+    try {
+      const uploadBatchId = uploadResult.uploadBatchId;
+      
+      // Retrieve all ProcessedLead records from the current batch with 'pending' Smartfin status
+      const pendingLeads = await db.processed_leads
+        .where('uploadBatchId')
+        .equals(uploadBatchId)
+        .and(lead => 
+          (lead.assignmentStatus === "RM Assigned (Manual)" || 
+           lead.assignmentStatus === "RM Assigned (Auto)") && 
+          (lead.smartfinUploadStatus === 'pending' || lead.smartfinUploadStatus === null)
+        )
+        .toArray();
+      
+      console.log(`Found ${pendingLeads.length} pending leads for Smartfin upload`);
+      
+      // Prepare the Smartfin upload result
+      const smartfinResult: SmartfinUploadResult = {
+        total: pendingLeads.length,
+        success: 0,
+        failed: 0,
+        rows: [],
         uploadBatchId
       };
       
-      // Update history with new entry at the beginning
-      setUploadHistory(prev => [newHistoryEntry, ...prev]);
-      
-      // Update upload status for the UI
-      if (uploadResult.failed === 0) {
-        setUploadStatus("success");
-      } else if (uploadResult.success === 0) {
-        setUploadStatus("failed");
-      } else {
-        setUploadStatus("partial");
+      // Process each pending lead using the Smartfin API
+      for (const lead of pendingLeads) {
+        console.log(`Processing lead ${lead.id} for Smartfin upload`);
+        
+        // Call the Smartfin API
+        const smartfinResponse = await uploadLeadToSmartfin(lead);
+        
+        if (smartfinResponse.success) {
+          // Get the Smartfin Dealer ID from the response
+          const smartfinDealerId = smartfinResponse.smartfinDealerId!;
+          
+          // Update the lead record in the database
+          await db.processed_leads.update(lead.id, {
+            smartfinUploadStatus: 'success',
+            smartfinDealerId
+          });
+          
+          try {
+            // Get the RM's email - ensure no undefined values
+            if (!lead.assignedRmAdid) {
+              throw new Error('Missing RM ADID');
+            }
+            
+            const rmAdid = lead.assignedRmAdid;
+            const rmEmail = await getEmailFromRmAdid(rmAdid);
+            
+            // Get PSM details for the anchor - use explicit cast to string with default
+            const anchorName: string = (lead.anchorNameSelected as string) || '';
+            const [psmAdid, psmEmail] = await getPSMDetailsFromAnchor(anchorName);
+            
+            // Use the safe helper function instead of directly calling handleNewLeadAssignment
+            const success = await safeHandleNewLeadAssignment(
+              lead.id,
+              lead.assignedRmAdid,
+              psmAdid
+            );
+            
+            if (!success) {
+              throw new Error('Failed to create lead workflow');
+            }
+            
+            // Add to success count
+            smartfinResult.success++;
+            
+            // Add the row to the UI results
+            smartfinResult.rows.push({
+              rowNumber: lead.originalRowNumber,
+              dealerId: lead.originalData["Name of the Firm"] || `Row ${lead.originalRowNumber}`,
+              anchorId: lead.originalData["PAN Number"] || "",
+              rmName: lead.originalData["RM ADID"] || "",
+              assignedRmAdid: lead.assignedRmAdid || undefined,
+              status: "success",
+              smartfinStatus: 'success',
+              smartfinDealerId
+            });
+          } catch (error) {
+            console.error(`Error calling handleNewLeadAssignment for lead ${lead.id}:`, error);
+            // Update as failed instead
+            await db.processed_leads.update(lead.id, {
+              smartfinUploadStatus: 'failed',
+              smartfinErrorCode: 'SF999',
+              smartfinErrorDescription: 'Error creating lead workflow'
+            });
+            
+            smartfinResult.failed++;
+            smartfinResult.rows.push({
+              rowNumber: lead.originalRowNumber,
+              dealerId: lead.originalData["Name of the Firm"] || `Row ${lead.originalRowNumber}`,
+              anchorId: lead.originalData["PAN Number"] || "",
+              rmName: lead.originalData["RM ADID"] || "",
+              assignedRmAdid: lead.assignedRmAdid || undefined,
+              status: "failed",
+              smartfinStatus: 'failed',
+              smartfinError: 'Error creating lead workflow'
+            });
+          }
+        } else {
+          // The Smartfin API call failed
+          const smartfinErrorCode = smartfinResponse.errorCode || 'SF000';
+          const smartfinErrorDescription = smartfinResponse.errorDescription || 'Unknown Smartfin error';
+          
+          // Update the lead record in the database
+          await db.processed_leads.update(lead.id, {
+            smartfinUploadStatus: 'failed',
+            smartfinErrorCode,
+            smartfinErrorDescription
+          });
+          
+          // Add to failed count
+          smartfinResult.failed++;
+          
+          // Add the row to the UI results
+          smartfinResult.rows.push({
+            rowNumber: lead.originalRowNumber,
+            dealerId: lead.originalData["Name of the Firm"] || `Row ${lead.originalRowNumber}`,
+            anchorId: lead.originalData["PAN Number"] || "",
+            rmName: lead.originalData["RM ADID"] || "",
+            assignedRmAdid: lead.assignedRmAdid || undefined,
+            status: "failed",
+            smartfinStatus: 'failed',
+            smartfinError: smartfinErrorDescription
+          });
+        }
       }
       
-      console.log(`=== Lead upload process completed ===`);
+      console.log(`Smartfin processing complete. Success: ${smartfinResult.success}, Failed: ${smartfinResult.failed}`);
+      
+      // Update UI state
+      setSmartfinUploadResult(smartfinResult);
+      
+      // Determine upload status based on results
+      if (smartfinResult.success === 0) {
+        setSmartfinUploadStatus("failed");
+      } else if (smartfinResult.failed > 0) {
+        setSmartfinUploadStatus("partial");
+      } else {
+        setSmartfinUploadStatus("success");
+      }
+      
+      // Add to upload history
+      const newHistoryItem: UploadHistoryItem = {
+        fileName: `${selectedFile?.name || 'Unknown'} (Smartfin)`,
+        uploadDate: new Date().toISOString(),
+        uploadedBy: userEmail || "Unknown User",
+        status: smartfinResult.failed === 0 ? "Success" : "Failure",
+        responseFile: `${selectedFile?.name?.split('.')[0] || 'smartfin'}_smartfin_response.xlsx`,
+        uploadBatchId,
+        uploadStep: 'smartfin_upload'
+      };
+      
+      setUploadHistory(prev => [newHistoryItem, ...prev]);
       
     } catch (error) {
-      console.error("❌ Error processing file:", error);
-      setUploadStatus("failed");
+      console.error("Error in Smartfin upload process:", error);
+      setSmartfinUploadStatus("failed");
     }
-  }
+  };
 
+  // Function to download Smartfin results
+  const handleDownloadSmartfinResults = async () => {
+    if (!smartfinUploadResult || !smartfinUploadResult.uploadBatchId) {
+      alert("No Smartfin upload results to download");
+      return;
+    }
+    
+    try {
+      // Fetch all leads from the current upload batch
+      const leads = await db.processed_leads
+        .where('uploadBatchId')
+        .equals(smartfinUploadResult.uploadBatchId)
+        .toArray();
+      
+      // Create an Excel worksheet
+      const workbook = XLSX.utils.book_new();
+      
+      // Prepare data for the worksheet
+      const worksheetData = leads.map(lead => {
+        // Include original lead data and Smartfin details
+        return {
+          'Row Number': lead.originalRowNumber,
+          'Dealer Name': lead.originalData["Name of the Firm"] || '',
+          'PAN': lead.originalData["PAN Number"] || '',
+          'Anchor Name': lead.anchorNameSelected,
+          'Program Name': lead.programNameSelected,
+          'Assigned RM': lead.assignedRmAdid || '',
+          'Assignment Status': lead.assignmentStatus,
+          'Assignment Error': lead.errorDescription || '',
+          'Smartfin Status': lead.smartfinUploadStatus || '',
+          'Smartfin Dealer ID': lead.smartfinDealerId || '',
+          'Smartfin Error Code': lead.smartfinErrorCode || '',
+          'Smartfin Error Description': lead.smartfinErrorDescription || ''
+        };
+      });
+      
+      // Create the worksheet
+      const worksheet = XLSX.utils.json_to_sheet(worksheetData);
+      
+      // Add the worksheet to the workbook
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'SmartfinResults');
+      
+      // Generate Excel file and trigger download
+      const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const fileName = `smartfin_results_${smartfinUploadResult.uploadBatchId}.xlsx`;
+      saveAs(blob, fileName);
+      
+    } catch (error) {
+      console.error("Error downloading Smartfin results:", error);
+      alert("Failed to download Smartfin results");
+    }
+  };
+
+  // Function to download results (replacing the original handleDownloadResults)
   const handleDownloadResults = async () => {
     if (!uploadResult || !uploadResult.uploadBatchId) return;
     
@@ -500,7 +715,62 @@ export default function NewLeads() {
     } catch (error) {
       console.error("Error downloading results:", error);
     }
-  }
+  };
+
+  // Function to render Smartfin upload alert
+  const renderSmartfinUploadAlert = () => {
+    if (smartfinUploadStatus === "idle") return null;
+    
+    if (smartfinUploadStatus === "processing") {
+      return (
+        <Alert className="mb-4">
+          <AlertCircle className="h-4 w-4 mr-2" />
+          <AlertTitle>Processing Smartfin Upload</AlertTitle>
+          <AlertDescription>
+            Please wait while we upload your leads to Smartfin...
+          </AlertDescription>
+        </Alert>
+      );
+    }
+    
+    if (smartfinUploadStatus === "success") {
+      return (
+        <Alert className="mb-4 bg-green-50 dark:bg-green-900/10 text-green-800 dark:text-green-400 border-green-200 dark:border-green-800/30">
+          <CheckCircle className="h-4 w-4 mr-2" />
+          <AlertTitle>Smartfin Upload Complete</AlertTitle>
+          <AlertDescription>
+            All leads were successfully uploaded to Smartfin.
+          </AlertDescription>
+        </Alert>
+      );
+    }
+    
+    if (smartfinUploadStatus === "partial") {
+      return (
+        <Alert className="mb-4 bg-yellow-50 dark:bg-yellow-900/10 text-yellow-800 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800/30">
+          <AlertCircle className="h-4 w-4 mr-2" />
+          <AlertTitle>Partial Smartfin Upload</AlertTitle>
+          <AlertDescription>
+            Some leads were successfully uploaded to Smartfin, but others failed. Please review the results.
+          </AlertDescription>
+        </Alert>
+      );
+    }
+    
+    if (smartfinUploadStatus === "failed") {
+      return (
+        <Alert className="mb-4 bg-red-50 dark:bg-red-900/10 text-red-800 dark:text-red-400 border-red-200 dark:border-red-800/30">
+          <XCircle className="h-4 w-4 mr-2" />
+          <AlertTitle>Smartfin Upload Failed</AlertTitle>
+          <AlertDescription>
+            Failed to upload leads to Smartfin. Please review the errors and try again.
+          </AlertDescription>
+        </Alert>
+      );
+    }
+    
+    return null;
+  };
 
   const renderUploadAlert = () => {
     switch (uploadStatus) {
@@ -635,6 +905,7 @@ export default function NewLeads() {
                 </div>
 
                 {renderUploadAlert()}
+                {renderSmartfinUploadAlert()}
 
                 {uploadResult && (
                   <div className="mt-6">
@@ -660,6 +931,46 @@ export default function NewLeads() {
                       </div>
                     </div>
 
+                    {/* Add Smartfin Upload Button */}
+                    {showSmartfinUploadButton && smartfinUploadStatus === "idle" && (
+                      <div className="flex justify-center mb-4">
+                        <Button 
+                          onClick={handleSmartfinUpload}
+                          className="bg-amber-500 hover:bg-amber-600 text-white"
+                        >
+                          <Upload className="mr-2 h-4 w-4" />
+                          Upload in Smartfin
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Show Smartfin Results if available */}
+                    {smartfinUploadResult && (
+                      <div className="mt-6 mb-4">
+                        <h3 className="text-lg font-medium mb-2">Smartfin Upload Results</h3>
+                        <div className="flex gap-4 mb-4">
+                          <div className="flex-1 bg-green-50 dark:bg-green-900/20 p-4 rounded-md">
+                            <p className="text-sm text-green-800 dark:text-green-300">Success</p>
+                            <p className="text-2xl font-bold text-green-800 dark:text-green-300">
+                              {smartfinUploadResult.success}
+                            </p>
+                          </div>
+                          <div className="flex-1 bg-red-50 dark:bg-red-900/20 p-4 rounded-md">
+                            <p className="text-sm text-red-800 dark:text-red-300">Failed</p>
+                            <p className="text-2xl font-bold text-red-800 dark:text-red-300">
+                              {smartfinUploadResult.failed}
+                            </p>
+                          </div>
+                          <div className="flex-1 bg-gray-50 dark:bg-gray-900/20 p-4 rounded-md">
+                            <p className="text-sm text-gray-800 dark:text-gray-300">Total</p>
+                            <p className="text-2xl font-bold text-gray-800 dark:text-gray-300">
+                              {smartfinUploadResult.total}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="overflow-x-auto mb-4">
                       <Table>
                         <TableHeader>
@@ -670,6 +981,14 @@ export default function NewLeads() {
                             <TableHead>RM Name</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Error</TableHead>
+                            {/* Add Smartfin columns if Smartfin upload has been attempted */}
+                            {smartfinUploadResult && (
+                              <>
+                                <TableHead>Smartfin Status</TableHead>
+                                <TableHead>Smartfin ID</TableHead>
+                                <TableHead>Smartfin Error</TableHead>
+                              </>
+                            )}
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -699,9 +1018,36 @@ export default function NewLeads() {
                                   {row.status.charAt(0).toUpperCase() + row.status.slice(1)}
                                 </span>
                               </TableCell>
-                              <TableCell className="text-red-600 dark:text-red-400">
-                                {row.error || "-"}
-                              </TableCell>
+                              <TableCell>{row.error || "-"}</TableCell>
+                              {/* Add Smartfin columns if Smartfin upload has been attempted */}
+                              {smartfinUploadResult && (
+                                <>
+                                  <TableCell>
+                                    {row.smartfinStatus ? (
+                                      <span
+                                        className={cn(
+                                          "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
+                                          {
+                                            "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300":
+                                              row.smartfinStatus === "success",
+                                            "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300":
+                                              row.smartfinStatus === "pending",
+                                            "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300":
+                                              row.smartfinStatus === "failed",
+                                          }
+                                        )}
+                                      >
+                                        {row.smartfinStatus === "success" && <CheckCircle className="mr-1 h-3 w-3" />}
+                                        {row.smartfinStatus === "failed" && <XCircle className="mr-1 h-3 w-3" />}
+                                        {row.smartfinStatus === "pending" && <AlertCircle className="mr-1 h-3 w-3" />}
+                                        {row.smartfinStatus.charAt(0).toUpperCase() + row.smartfinStatus.slice(1)}
+                                      </span>
+                                    ) : "-"}
+                                  </TableCell>
+                                  <TableCell>{row.smartfinDealerId || "-"}</TableCell>
+                                  <TableCell>{row.smartfinError || "-"}</TableCell>
+                                </>
+                              )}
                             </TableRow>
                           ))}
                         </TableBody>
@@ -775,15 +1121,31 @@ export default function NewLeads() {
                 </Table>
               </div>
             </CardContent>
-            <CardFooter>
-              <Button 
-                onClick={handleUpload} 
-                disabled={!selectedFile || !selectedAnchor || !selectedProgram || uploadStatus === "processing"} 
-                className="gap-2"
-              >
-                <Upload className="h-4 w-4" />
-                Upload Leads
+            <CardFooter className="flex flex-col sm:flex-row gap-2">
+              <Button onClick={handleUpload} disabled={!selectedFile || !isFileValid || uploadStatus === "processing" || !selectedAnchor || !selectedProgram}>
+                {uploadStatus === "processing" ? (
+                  <>
+                    <span className="animate-spin mr-2">⟳</span>
+                    Processing...
+                  </>
+                ) : (
+                  "Upload"
+                )}
               </Button>
+              
+              {uploadResult && (
+                <Button variant="outline" onClick={handleDownloadResults}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download Results
+                </Button>
+              )}
+              
+              {smartfinUploadResult && (
+                <Button variant="outline" onClick={handleDownloadSmartfinResults}>
+                  <Download className="mr-2 h-4 w-4" />
+                  Download Smartfin Results
+                </Button>
+              )}
             </CardFooter>
           </Card>
         </TabsContent>

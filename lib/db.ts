@@ -132,6 +132,10 @@ export interface ProcessedLead {
   assignmentStatus: string;
   errorCode: string | null;
   errorDescription: string | null;
+  smartfinUploadStatus?: 'pending' | 'success' | 'failed' | null;
+  smartfinDealerId?: string | null;
+  smartfinErrorCode?: string | null;
+  smartfinErrorDescription?: string | null;
 }
 
 // Define the updated LeadCommunication interface separately to avoid type conflicts
@@ -240,6 +244,8 @@ export class SCFLeadManagementDB extends Dexie {
 
   constructor() {
     super('SCFLeadManagement');
+    
+    // Version 1 schema
     this.version(1).stores({
       anchor_master: 'id, anchorname, programname',
       hierarchy_master: 'id, employeeName',
@@ -248,13 +254,18 @@ export class SCFLeadManagementDB extends Dexie {
       rm_branch: 'id, rmId, rmName, branchCode, region',
     });
     
-    // Version 2: Updated schema with additional indexed fields
+    // Version 2 adds error_codes, processed_leads, lead_communications, lead_workflow_states
+    // and updates processed_leads with the smartfin fields
     this.version(2).stores({
-      anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
-      hierarchy_master: 'id, employeeName, empAdid, fullName, rblAdid, rblName, region, zhAdid, zhName',
-      holiday_master: 'id, Date, HolidayType, date, name, type, description',
-      pincode_branch: 'id, pincode, branchCode, branchName, city, state, region, active',
-      rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
+      anchor_master: 'id, anchorname, programname',
+      hierarchy_master: 'id, employeeName',
+      holiday_master: 'id, Date, HolidayType',
+      pincode_branch: 'id, pincode, branchCode, branchName, city, state',
+      rm_branch: 'id, rmId, rmName, branchCode, region',
+      error_codes: 'id, errorCode, module',
+      processed_leads: 'id, uploadBatchId, assignedRmAdid, assignmentStatus, smartfinUploadStatus',
+      lead_communications: 'id, processedLeadId, communicationType, timestamp',
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, psmAdid'
     });
 
     // Version 3: Add error_codes and processed_leads tables
@@ -400,6 +411,89 @@ export class SCFLeadManagementDB extends Dexie {
         console.log('Hierarchy master migration completed');
       } catch (error) {
         console.error('Error migrating hierarchy records:', error);
+      }
+    });
+
+    // Version 9: Add Smartfin fields to processed_leads
+    this.version(9).stores({
+      // Keep the same schema and add smartfinUploadStatus index
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode, smartfinUploadStatus',
+      
+      // Carry forward all other table definitions
+      pincode_branch: 'id, Pincode, BranchCode, BranchName, Cluster, Region',
+      hierarchy_master: 'id, EmpADID, FullName, Role, Team, Region, Zone',
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, psmAdid, currentAssigneeType, nextFollowUpTimestamp, updatedAt',
+      ai_prompts_master: 'id, name, category, prompt, systemPrompt, modelType',
+      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail, aiTokensConsumed',
+      anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
+      holiday_master: 'id, Date, HolidayType, date, name, type, description',
+      rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
+      error_codes: '++id, errorCode, module, severity'
+    });
+
+    // Version 10: Add missing indexes for backward compatibility
+    this.version(10).stores({
+      // Add indexes for backward compatibility fields
+      hierarchy_master: 'id, EmpADID, empAdid, FullName, fullName, employeeName, Role, Team, Region, region, Zone, RBLADIDCode, rblAdid, ZHADID, zhAdid, YesEmail, yesEmail',
+      
+      // Carry forward all other table definitions
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode, smartfinUploadStatus',
+      pincode_branch: 'id, Pincode, BranchCode, BranchName, Cluster, Region',
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, psmAdid, currentAssigneeType, nextFollowUpTimestamp, updatedAt',
+      ai_prompts_master: 'id, name, category, prompt, systemPrompt, modelType',
+      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail, aiTokensConsumed',
+      anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
+      holiday_master: 'id, Date, HolidayType, date, name, type, description',
+      rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
+      error_codes: '++id, errorCode, module, severity'
+    });
+    
+    // Version 10: Add upgrade function to migrate any needed field mappings
+    this.version(10).upgrade(async tx => {
+      console.log('Running database upgrade to version 10...');
+      
+      // Migrate HierarchyMaster records to ensure compatibility fields are filled
+      try {
+        const hierarchyRecords = await tx.table('hierarchy_master').toArray();
+        console.log(`Ensuring compatibility fields for ${hierarchyRecords.length} hierarchy records...`);
+        
+        for (const hr of hierarchyRecords) {
+          const updates: Partial<HierarchyMaster> = {};
+          
+          // Map new fields to old fields for compatibility
+          if (hr.EmpADID && !hr.empAdid) updates.empAdid = hr.EmpADID;
+          if (hr.FullName && !hr.fullName) updates.fullName = hr.FullName;
+          if (hr.FullName && !hr.employeeName) updates.employeeName = hr.FullName;
+          if (hr.RBLADIDCode && !hr.rblAdid) updates.rblAdid = hr.RBLADIDCode;
+          if (hr.RBLName && !hr.rblName) updates.rblName = hr.RBLName;
+          if (hr.Region && !hr.region) updates.region = hr.Region;
+          if (hr.ZHADID && !hr.zhAdid) updates.zhAdid = hr.ZHADID;
+          if (hr.ZHName && !hr.zhName) updates.zhName = hr.ZHName;
+          if (hr.YesEmail && !hr.yesEmail) updates.yesEmail = hr.YesEmail;
+          if (hr.Mobile && !hr.mobile) updates.mobile = hr.Mobile;
+          
+          // Map old fields to new fields if new fields don't exist
+          if (hr.empAdid && !hr.EmpADID) updates.EmpADID = hr.empAdid;
+          if ((hr.fullName || hr.employeeName) && !hr.FullName) {
+            updates.FullName = hr.fullName || hr.employeeName || '';
+          }
+          if (hr.rblAdid && !hr.RBLADIDCode) updates.RBLADIDCode = hr.rblAdid;
+          if (hr.rblName && !hr.RBLName) updates.RBLName = hr.rblName;
+          if (hr.region && !hr.Region) updates.Region = hr.region;
+          if (hr.zhAdid && !hr.ZHADID) updates.ZHADID = hr.zhAdid;
+          if (hr.zhName && !hr.ZHName) updates.ZHName = hr.zhName;
+          if (hr.yesEmail && !hr.YesEmail) updates.YesEmail = hr.yesEmail;
+          if (hr.mobile && !hr.Mobile) updates.Mobile = hr.mobile;
+          
+          // Only update if we have changes
+          if (Object.keys(updates).length > 0) {
+            await tx.table('hierarchy_master').update(hr.id, updates);
+          }
+        }
+        
+        console.log('Hierarchy master compatibility fields updated');
+      } catch (error) {
+        console.error('Error updating hierarchy compatibility fields:', error);
       }
     });
   }

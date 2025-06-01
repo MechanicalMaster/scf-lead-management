@@ -305,40 +305,40 @@ export default function EditLeadModal({ lead, isOpen, onClose, onSave }: EditLea
       }
       // Handle non-PSM actions (existing functionality)
       else {
-        // Convert selected flag back to a stage value
-        const newStage = flagToStageMap[flag] || lead.currentStage;
-        
-        // If stage didn't change, don't update
-        if (newStage === lead.currentStage && !notes) {
-          onClose();
-          return;
-        }
-        
-        const updates: any = {
-          updatedAt: now
-        };
-        
-        // If stage changed, update stage-related fields
-        if (newStage !== lead.currentStage) {
-          updates.currentStage = newStage;
-          updates.lastStageChangeTimestamp = now;
-        }
-        
-        // Update the workflow state
-        await db.lead_workflow_states.update(lead.workflowStateId, updates);
-        
-        // If notes were provided, add a communication record
-        if (notes.trim()) {
-          await createLeadCommunication({
-            processedLeadId: lead.processedLeadId,
-            communicationType: 'StageUpdate',
-            title: 'Manual Stage Update',
-            description: notes,
-            senderType: 'RM',
-            senderAdidOrEmail: lead.rmId || 'system',
-            recipientAdidOrEmail: 'system',
-            relatedWorkflowStateId: lead.workflowStateId
-          });
+      // Convert selected flag back to a stage value
+      const newStage = flagToStageMap[flag] || lead.currentStage;
+      
+      // If stage didn't change, don't update
+      if (newStage === lead.currentStage && !notes) {
+        onClose();
+        return;
+      }
+      
+      const updates: any = {
+        updatedAt: now
+      };
+      
+      // If stage changed, update stage-related fields
+      if (newStage !== lead.currentStage) {
+        updates.currentStage = newStage;
+        updates.lastStageChangeTimestamp = now;
+      }
+      
+      // Update the workflow state
+      await db.lead_workflow_states.update(lead.workflowStateId, updates);
+      
+      // If notes were provided, add a communication record
+      if (notes.trim()) {
+        await createLeadCommunication({
+          processedLeadId: lead.processedLeadId,
+          communicationType: 'StageUpdate',
+          title: 'Manual Stage Update',
+          description: notes,
+          senderType: 'RM',
+          senderAdidOrEmail: lead.rmId || 'system',
+          recipientAdidOrEmail: 'system',
+          relatedWorkflowStateId: lead.workflowStateId
+        });
         }
       }
       

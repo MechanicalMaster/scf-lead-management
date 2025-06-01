@@ -1,5 +1,6 @@
 import db from './db';
 import { safeDbOperation } from './db-init';
+import { handleNewLeadAssignment } from './lead-workflow-examples';
 
 /**
  * Function to get an RM's email address from their ADID
@@ -7,16 +8,28 @@ import { safeDbOperation } from './db-init';
  */
 export async function getEmailFromRmAdid(rmAdid: string): Promise<string> {
   try {
-    // First check the hierarchy_master table
+    // First check the hierarchy_master table using new field names
     const hierarchyRecord = await db.hierarchy_master
-      .where('empAdid')
+      .where('EmpADID')
       .equals(rmAdid)
-      .or('rblAdid')
+      .or('RBLADIDCode')
       .equals(rmAdid)
       .first();
     
-    if (hierarchyRecord?.yesEmail) {
-      return hierarchyRecord.yesEmail;
+    if (hierarchyRecord?.YesEmail) {
+      return hierarchyRecord.YesEmail;
+    }
+    
+    // Fallback to old field names if needed
+    if (!hierarchyRecord) {
+      const oldHierarchyRecord = await db.hierarchy_master
+        .where('id')
+        .equals(rmAdid)
+        .first();
+      
+      if (oldHierarchyRecord?.yesEmail) {
+        return oldHierarchyRecord.yesEmail;
+      }
     }
     
     // If not found or no email, check rm_branch for any identifying info
@@ -246,4 +259,37 @@ Please take appropriate action on this lead at your earliest convenience.
 Regards,
 SCF Lead Management System
 `;
+}
+
+/**
+ * Safely handle a new lead assignment for Smartfin workflow
+ * This is a wrapper around handleNewLeadAssignment that handles potential undefined values
+ */
+export async function safeHandleNewLeadAssignment(
+  processedLeadId: string,
+  rmAdid: string | null | undefined,
+  psmAdid: string | null | undefined
+): Promise<boolean> {
+  try {
+    if (!rmAdid) {
+      console.error('Missing RM ADID for lead assignment');
+      return false;
+    }
+    
+    // Get the RM's email
+    const rmEmail = await getEmailFromRmAdid(rmAdid);
+    
+    // Call the handleNewLeadAssignment function with safe parameters
+    await handleNewLeadAssignment(
+      processedLeadId,
+      rmAdid,
+      rmEmail,
+      psmAdid || undefined
+    );
+    
+    return true;
+  } catch (error) {
+    console.error('Error in safe lead assignment:', error);
+    return false;
+  }
 } 
