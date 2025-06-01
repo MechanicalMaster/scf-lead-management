@@ -1,7 +1,7 @@
 // lib/dbUtils.ts
 // Helper utilities for working with the database
 
-import db, { AnchorMaster, HierarchyMaster, HolidayMaster, PincodeBranch, RMBranch, MasterService, ErrorCodeMaster } from './db';
+import db, { AnchorMaster, HierarchyMaster, HolidayMaster, PincodeBranch, RMBranch, MasterService, ErrorCodeMaster, SmartfinStatusUpdate } from './db';
 import { ERROR_CODES } from './constants';
 
 /**
@@ -140,6 +140,53 @@ export function mapErrorCodeUIToDB(uiData: any): ErrorCodeMaster {
     description: uiData.description || '',
     module: uiData.module || '',
     severity: uiData.severity || 'Error'
+  };
+}
+
+// Map Smartfin Status Update from UI/Excel to DB
+export function mapSmartfinStatusUpdateUIToDB(uiData: any): SmartfinStatusUpdate {
+  // Helper function to convert Excel date formats if needed
+  const parseDate = (dateValue: any): string => {
+    if (!dateValue) return '';
+    
+    // If it's a number (Excel date format), convert it
+    if (typeof dateValue === 'number') {
+      try {
+        // Excel dates are number of days since Dec 30, 1899
+        const excelDate = dateValue;
+        const date = new Date(Math.round((excelDate - 25569) * 86400 * 1000));
+        return date.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+      } catch (e) {
+        console.error("Error converting Excel date:", e);
+        return String(dateValue);
+      }
+    }
+    
+    // If it's already a string, return as is
+    return String(dateValue);
+  };
+
+  return {
+    applicationNo: String(uiData["Application No"] || ''),
+    createdDate: parseDate(uiData["Created Date"]),
+    firmName: String(uiData["Firm Name"] || ''),
+    applicationType: String(uiData["Application Type"] || ''),
+    status: String(uiData["Status"] || ''),
+    branch: String(uiData["Branch"] || ''),
+    requestedAmount: String(uiData["Requested Amount"] || ''),
+    sanctionedAmount: String(uiData["Sanctioned Amount"] || ''),
+    sanctionDate: parseDate(uiData["Sanction Date"]),
+    programMappedDate: parseDate(uiData["Program Mapped Date"]),
+    rmName: String(uiData["RM Name"] || ''),
+    rmTAT: String(uiData["RM TAT"] || ''),
+    cpaName: String(uiData["CPA Name"] || ''),
+    cpaTAT: String(uiData["CPA TAT"] || ''),
+    cmName: String(uiData["CM Name"] || ''),
+    cmTAT: String(uiData["CM TAT"] || ''),
+    approvalRequestedDate: parseDate(uiData["Approval Requested Date"]),
+    approvalTAT: String(uiData["Approval TAT"] || ''),
+    totalTAT: String(uiData["Total TAT"] || ''),
+    uploadTimestamp: new Date().toISOString()
   };
 }
 
@@ -359,21 +406,41 @@ export async function initializeDBIfEmpty() {
 }
 
 /**
- * Count total records in each master store
+ * Get counts of records in each master data table
  */
 export async function getMasterDataCounts() {
   try {
+    const [
+      anchorsCount,
+      hierarchyCount,
+      holidaysCount,
+      pincodeBranchCount,
+      rmBranchCount,
+      errorCodesCount,
+      smartfinStatusCount
+    ] = await Promise.all([
+      db.anchor_master.count(),
+      db.hierarchy_master.count(),
+      db.holiday_master.count(),
+      db.pincode_branch.count(),
+      db.rm_branch.count(),
+      db.error_codes.count(),
+      db.smartfin_status_updates.count()
+    ]);
+    
     const counts = {
-      anchor_master: await db.anchor_master.count(),
-      hierarchy_master: await db.hierarchy_master.count(),
-      holiday_master: await db.holiday_master.count(),
-      pincode_branch: await db.pincode_branch.count(),
-      rm_branch: await db.rm_branch.count(),
-      error_codes: await db.error_codes.count(),
-      processed_leads: await db.processed_leads.count()
+      anchor_master: anchorsCount,
+      hierarchy_master: hierarchyCount,
+      holiday_master: holidaysCount,
+      pincode_branch: pincodeBranchCount,
+      rm_branch: rmBranchCount,
+      error_codes: errorCodesCount,
+      smartfin_status_updates: smartfinStatusCount
     };
+    
     return { success: true, data: counts };
   } catch (error: any) {
+    console.error("Error getting master data counts:", error);
     return { success: false, error: error.message };
   }
 }
@@ -386,5 +453,6 @@ export default {
   mapHolidayUIToDB,
   mapPincodeBranchUIToDB,
   mapRMBranchUIToDB,
-  mapErrorCodeUIToDB
+  mapErrorCodeUIToDB,
+  mapSmartfinStatusUpdateUIToDB
 }; 

@@ -95,13 +95,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
              page.startsWith("/lead-details/")
     }
 
-    // PSM users have access to dashboard, reports, new leads, rm leads, psm leads, and lead details
+    // PSM users have access to dashboard, reports, new leads, rm leads, psm leads, smartfin update, and lead details
     if (userRole === "psm") {
       return page === "/dashboard" || 
              page === "/reports" || 
              page === "/new-leads" || 
              page === "/rm-leads" || 
-             page === "/psm-leads" || 
+             page === "/psm-leads" ||
+             page === "/smartfin-update" || 
              page.startsWith("/lead-details/")
     }
 

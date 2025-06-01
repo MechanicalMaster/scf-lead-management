@@ -238,7 +238,7 @@ export async function initializeDatabase() {
 }
 
 // Wrap database operations in error handlers
-export function safeDbOperation<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
+export async function safeDbOperation<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
   return new Promise<T>(async (resolve) => {
     if (!isBrowser()) {
       resolve(fallback);
@@ -246,10 +246,35 @@ export function safeDbOperation<T>(operation: () => Promise<T>, fallback: T): Pr
     }
     
     try {
-      const result = await operation();
-      resolve(result);
+      // First attempt to execute the operation
+      try {
+        const result = await operation();
+        resolve(result);
+        return;
+      } catch (error: any) {
+        // Check if it's a database closed error
+        if (error && error.name === 'DatabaseClosedError') {
+          console.warn('Database was closed. Attempting to reopen...');
+          
+          // Try to reopen the database and retry the operation
+          try {
+            await db.open();
+            console.log('Database reopened successfully');
+            const result = await operation();
+            resolve(result);
+            return;
+          } catch (reopenError) {
+            console.error('Failed to reopen database:', reopenError);
+            // Continue to the general error handler
+            throw reopenError;
+          }
+        }
+        
+        // Rethrow the error if it's not a database closed error
+        throw error;
+      }
     } catch (error) {
-      console.error('Database operation failed:', error);
+      console.error('Error in database operation:', error);
       resolve(fallback);
     }
   });

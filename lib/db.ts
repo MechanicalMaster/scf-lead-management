@@ -6,7 +6,8 @@
 import Dexie, { Table } from 'dexie';
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
-import { LEAD_TEMPLATE_HEADERS } from './constants';
+import { LEAD_TEMPLATE_HEADERS, SMARTFIN_UPDATE_TEMPLATE_HEADERS } from './constants';
+import { mapAnchorUIToDB, mapHierarchyUIToDB, mapHolidayUIToDB, mapPincodeBranchUIToDB, mapRMBranchUIToDB, mapErrorCodeUIToDB, mapSmartfinStatusUpdateUIToDB } from './dbUtils';
 
 // --- TypeScript interfaces for master data stores ---
 export interface AnchorMaster {
@@ -207,6 +208,29 @@ export interface LeadWorkflowState {
   createdAt: string; // ISO string
 }
 
+export interface SmartfinStatusUpdate {
+  applicationNo: string; // Primary Key
+  createdDate: string;
+  firmName: string;
+  applicationType: string;
+  status: string;
+  branch: string;
+  requestedAmount: string;
+  sanctionedAmount: string;
+  sanctionDate: string;
+  programMappedDate: string;
+  rmName: string;
+  rmTAT: string;
+  cpaName: string;
+  cpaTAT: string;
+  cmName: string;
+  cmTAT: string;
+  approvalRequestedDate: string;
+  approvalTAT: string;
+  totalTAT: string;
+  uploadTimestamp?: string; // When the record was uploaded
+}
+
 type StoreName = 
   'anchor_master' | 
   'hierarchy_master' | 
@@ -216,7 +240,8 @@ type StoreName =
   'error_codes' | 
   'processed_leads' | 
   'lead_communications' |
-  'lead_workflow_states';
+  'lead_workflow_states' |
+  'smartfin_status_updates';
 
 type StoreTableMap = {
   anchor_master: AnchorMaster;
@@ -228,6 +253,7 @@ type StoreTableMap = {
   processed_leads: ProcessedLead;
   lead_communications: LeadCommunication;
   lead_workflow_states: LeadWorkflowState;
+  smartfin_status_updates: SmartfinStatusUpdate;
 };
 
 // --- Dexie Database Setup ---
@@ -241,6 +267,7 @@ export class SCFLeadManagementDB extends Dexie {
   processed_leads!: Table<ProcessedLead, string>;
   lead_communications!: Table<LeadCommunication, string>;
   lead_workflow_states!: Table<LeadWorkflowState, string>;
+  smartfin_status_updates!: Table<SmartfinStatusUpdate, string>;
 
   constructor() {
     super('SCFLeadManagement');
@@ -496,6 +523,24 @@ export class SCFLeadManagementDB extends Dexie {
         console.error('Error updating hierarchy compatibility fields:', error);
       }
     });
+
+    // Version 11: Add smartfin_status_updates table
+    this.version(11).stores({
+      // New table for Smartfin Status Updates
+      smartfin_status_updates: '&applicationNo, createdDate, status, rmName, firmName',
+      
+      // Carry forward all other table definitions
+      hierarchy_master: 'id, EmpADID, empAdid, FullName, fullName, employeeName, Role, Team, Region, region, Zone, RBLADIDCode, rblAdid, ZHADID, zhAdid, YesEmail, yesEmail',
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode, smartfinUploadStatus',
+      pincode_branch: 'id, Pincode, BranchCode, BranchName, Cluster, Region',
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, psmAdid, currentAssigneeType, nextFollowUpTimestamp, updatedAt',
+      ai_prompts_master: 'id, name, category, prompt, systemPrompt, modelType',
+      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail, aiTokensConsumed',
+      anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
+      holiday_master: 'id, Date, HolidayType, date, name, type, description',
+      rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
+      error_codes: '++id, errorCode, module, severity'
+    });
   }
 }
 
@@ -515,7 +560,8 @@ const STORE_FIELDS: Record<StoreName, string[]> = {
   error_codes: ['id', 'errorCode', 'description', 'module', 'severity'],
   processed_leads: [],  // No direct upload via master UI, populated programmatically
   lead_communications: ['id', 'leadId', 'rmEmail', 'messageType', 'content', 'timestamp', 'sender', 'recipient', 'processedLeadId', 'communicationType', 'title', 'description', 'senderType', 'senderAdidOrEmail', 'recipientAdidOrEmail', 'ccEmails', 'aiSummary', 'aiDecision', 'aiTokensConsumed', 'attachments', 'relatedWorkflowStateId'],
-  lead_workflow_states: ['id', 'processedLeadId', 'currentStage', 'currentAssigneeType', 'currentAssigneeAdid', 'psmAdid', 'lastStageChangeTimestamp', 'lastCommunicationTimestamp', 'nextFollowUpTimestamp', 'escalationLevel', 'droppedReason', 'updatedAt', 'createdAt']
+  lead_workflow_states: ['id', 'processedLeadId', 'currentStage', 'currentAssigneeType', 'currentAssigneeAdid', 'psmAdid', 'lastStageChangeTimestamp', 'lastCommunicationTimestamp', 'nextFollowUpTimestamp', 'escalationLevel', 'droppedReason', 'updatedAt', 'createdAt'],
+  smartfin_status_updates: ['applicationNo', 'createdDate', 'firmName', 'applicationType', 'status', 'branch', 'requestedAmount', 'sanctionedAmount', 'sanctionDate', 'programMappedDate', 'rmName', 'rmTAT', 'cpaName', 'cpaTAT', 'cmName', 'cmTAT', 'approvalRequestedDate', 'approvalTAT', 'totalTAT', 'uploadTimestamp']
 };
 
 // --- MasterService Class ---
@@ -601,154 +647,169 @@ export class MasterService {
       const expectedFields = STORE_FIELDS[storeName];
       const errors: string[] = [];
       
-      for (let i = 0; i < json.length; i++) {
-        const row = json[i];
-        // Validate required fields
-        const missing = expectedFields.filter((f) => !(f in row));
-        if (missing.length) {
-          errors.push(`Row ${i + 2}: Missing fields: ${missing.join(', ')}`);
-          continue;
-        }
-        
-        // Type conversions and field mappings
-        if ('active' in row) {
-          row.active = row.active === true || row.active === 'true' || row.active === 1 || row.active === '1';
-        }
-        
-        // Ensure pincode is always a string in pincode_branch
-        if (storeName === 'pincode_branch' && 'pincode' in row) {
-          row.pincode = String(row.pincode);
-        }
-        
-        // Ensure all ID and code fields are strings
-        if ('id' in row) row.id = String(row.id);
-        if ('branchCode' in row) row.branchCode = String(row.branchCode);
-        if ('rmId' in row) row.rmId = String(row.rmId);
-        
-        // Handle field mappings for backward compatibility
-        if (storeName === 'holiday_master') {
-          // Format Excel dates to ISO format
-          if (row.date) {
-            if (typeof row.date === 'number' || !isNaN(Number(row.date))) {
-              try {
-                const excelDate = typeof row.date === 'number' ? row.date : Number(row.date);
-                const jsDate = new Date(Math.round((excelDate - 25569) * 86400 * 1000));
-                row.date = jsDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
-              } catch (e) {
-                console.error("Error converting date:", e);
-              }
-            }
+      // Process and map the data according to store type
+      let processedData: any[] = [];
+      
+      if (storeName === 'smartfin_status_updates') {
+        // Use the mapping function for Smartfin Status Updates
+        processedData = json.map(row => mapSmartfinStatusUpdateUIToDB(row));
+      } else {
+        // For other stores, perform standard processing
+        for (let i = 0; i < json.length; i++) {
+          const row = json[i];
+          // Validate required fields
+          const missing = expectedFields.filter((f) => !(f in row));
+          if (missing.length) {
+            errors.push(`Row ${i + 2}: Missing fields: ${missing.join(', ')}`);
+            continue;
           }
           
-          if (row.Date) {
-            if (typeof row.Date === 'number' || !isNaN(Number(row.Date))) {
-              try {
-                const excelDate = typeof row.Date === 'number' ? row.Date : Number(row.Date);
-                const jsDate = new Date(Math.round((excelDate - 25569) * 86400 * 1000));
-                row.Date = jsDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
-              } catch (e) {
-                console.error("Error converting Date:", e);
-              }
-            }
+          // Type conversions and field mappings
+          if ('active' in row) {
+            row.active = row.active === true || row.active === 'true' || row.active === 1 || row.active === '1';
           }
           
-          // If new fields are present but old fields aren't, copy values
-          if (row.date && !row.Date) row.Date = row.date;
-          if (row.type && !row.HolidayType) row.HolidayType = row.type;
-        }
-        
-        // Handle field mappings for Pincode Branch - map new fields to our interface properties
-        if (storeName === 'pincode_branch') {
-          // Map Excel headers to interface properties
-          if (row['Pincode']) row.Pincode = String(row['Pincode']);
-          if (row['Branch Code']) row.BranchCode = String(row['Branch Code']);
-          if (row['Branch Name']) row.BranchName = String(row['Branch Name']);
-          if (row['Cluster']) row.Cluster = String(row['Cluster']);
-          if (row['Region']) row.Region = String(row['Region']);
+          // Ensure pincode is always a string in pincode_branch
+          if (storeName === 'pincode_branch' && 'pincode' in row) {
+            row.pincode = String(row.pincode);
+          }
           
-          // Handle backward compatibility with old field names
-          if (!row.Pincode && row.pincode) row.Pincode = row.pincode;
-          if (!row.BranchCode && row.branchCode) row.BranchCode = row.branchCode;
-          if (!row.BranchName && row.branchName) row.BranchName = row.branchName;
-          if (!row.Region && row.region) row.Region = row.region;
-        }
-        
-        // Handle field mappings for Hierarchy Master - map new fields to our interface properties
-        if (storeName === 'hierarchy_master') {
-          // Map Excel headers to interface properties
-          if (row['Old No']) row.OldNo = String(row['Old No']);
-          if (row['Emp No']) row.EmpNo = String(row['Emp No']);
-          if (row['Emp ADID']) row.EmpADID = String(row['Emp ADID']);
-          if (row['Full Name']) row.FullName = String(row['Full Name']);
-          if (row['Gender']) row.Gender = String(row['Gender']);
-          if (row['Emp Status']) row.EmpStatus = String(row['Emp Status']);
-          if (row['Functional Designation']) row.FunctionalDesignation = String(row['Functional Designation']);
-          if (row['Cat']) row.Cat = String(row['Cat']);
-          if (row['Role']) row.Role = String(row['Role']);
-          if (row['Team']) row.Team = String(row['Team']);
-          if (row['CBL Code']) row.CBLCode = String(row['CBL Code']);
-          if (row['CBL Code ADID']) row.CBLCodeADID = String(row['CBL Code ADID']);
-          if (row['CBL Name']) row.CBLName = String(row['CBL Name']);
-          if (row['Cluster']) row.Cluster = String(row['Cluster']);
-          if (row['RBL Code']) row.RBLCode = String(row['RBL Code']);
-          if (row['RBL ADID Code']) row.RBLADIDCode = String(row['RBL ADID Code']);
-          if (row['RBL Name']) row.RBLName = String(row['RBL Name']);
-          if (row['Region']) row.Region = String(row['Region']);
-          if (row['ZH Code']) row.ZHCode = String(row['ZH Code']);
-          if (row['ZH ADID']) row.ZHADID = String(row['ZH ADID']);
-          if (row['ZH Name']) row.ZHName = String(row['ZH Name']);
-          if (row['Zone']) row.Zone = String(row['Zone']);
-          if (row['Vertical']) row.Vertical = String(row['Vertical']);
-          if (row['Branch Code']) row.BranchCode = String(row['Branch Code']);
-          if (row['Office Location Code']) row.OfficeLocationCode = String(row['Office Location Code']);
-          if (row['Location']) row.Location = String(row['Location']);
-          if (row['City']) row.City = String(row['City']);
-          if (row['State']) row.State = String(row['State']);
-          if (row['Date Of Joining']) row.DateOfJoining = String(row['Date Of Joining']);
-          if (row['Yes Email']) row.YesEmail = String(row['Yes Email']);
-          if (row['Mobile']) row.Mobile = String(row['Mobile']);
-          if (row['Exit Month/Resign date']) row.ExitMonthResignDate = String(row['Exit Month/Resign date']);
-          if (row['Remarks']) row.Remarks = String(row['Remarks']);
-          if (row['Segment']) row.Segment = String(row['Segment']);
+          // Ensure all ID and code fields are strings
+          if ('id' in row) row.id = String(row.id);
+          if ('branchCode' in row) row.branchCode = String(row.branchCode);
+          if ('rmId' in row) row.rmId = String(row.rmId);
           
-          // Handle backward compatibility with old field names
-          if (!row.EmpADID && row.empAdid) row.EmpADID = row.empAdid;
-          if (!row.FullName && row.fullName) row.FullName = row.fullName;
-          if (!row.FullName && row.employeeName) row.FullName = row.employeeName;
-          if (!row.RBLADIDCode && row.rblAdid) row.RBLADIDCode = row.rblAdid;
-          if (!row.RBLName && row.rblName) row.RBLName = row.rblName;
-          if (!row.Region && row.region) row.Region = row.region;
-          if (!row.ZHADID && row.zhAdid) row.ZHADID = row.zhAdid;
-          if (!row.ZHName && row.zhName) row.ZHName = row.zhName;
-          if (!row.YesEmail && row.yesEmail) row.YesEmail = row.yesEmail;
-          if (!row.Mobile && row.mobile) row.Mobile = row.mobile;
+          // Handle field mappings for backward compatibility
+          if (storeName === 'holiday_master') {
+            // Format Excel dates to ISO format
+            if (row.date) {
+              if (typeof row.date === 'number' || !isNaN(Number(row.date))) {
+                try {
+                  const excelDate = typeof row.date === 'number' ? row.date : Number(row.date);
+                  const jsDate = new Date(Math.round((excelDate - 25569) * 86400 * 1000));
+                  row.date = jsDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+                } catch (e) {
+                  console.error("Error converting date:", e);
+                }
+              }
+            }
+            
+            if (row.Date) {
+              if (typeof row.Date === 'number' || !isNaN(Number(row.Date))) {
+                try {
+                  const excelDate = typeof row.Date === 'number' ? row.Date : Number(row.Date);
+                  const jsDate = new Date(Math.round((excelDate - 25569) * 86400 * 1000));
+                  row.Date = jsDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+                } catch (e) {
+                  console.error("Error converting Date:", e);
+                }
+              }
+            }
+            
+            // If new fields are present but old fields aren't, copy values
+            if (row.date && !row.Date) row.Date = row.date;
+            if (row.type && !row.HolidayType) row.HolidayType = row.type;
+          }
           
-          // Make sure EmpADID is used as id if available
-          if (row.EmpADID && !row.id) row.id = row.EmpADID;
+          // Handle field mappings for Pincode Branch - map new fields to our interface properties
+          if (storeName === 'pincode_branch') {
+            // Map Excel headers to interface properties
+            if (row['Pincode']) row.Pincode = String(row['Pincode']);
+            if (row['Branch Code']) row.BranchCode = String(row['Branch Code']);
+            if (row['Branch Name']) row.BranchName = String(row['Branch Name']);
+            if (row['Cluster']) row.Cluster = String(row['Cluster']);
+            if (row['Region']) row.Region = String(row['Region']);
+            
+            // Handle backward compatibility with old field names
+            if (!row.Pincode && row.pincode) row.Pincode = row.pincode;
+            if (!row.BranchCode && row.branchCode) row.BranchCode = row.branchCode;
+            if (!row.BranchName && row.branchName) row.BranchName = row.branchName;
+            if (!row.Region && row.region) row.Region = row.region;
+          }
+          
+          // Handle field mappings for Hierarchy Master - map new fields to our interface properties
+          if (storeName === 'hierarchy_master') {
+            // Map Excel headers to interface properties
+            if (row['Old No']) row.OldNo = String(row['Old No']);
+            if (row['Emp No']) row.EmpNo = String(row['Emp No']);
+            if (row['Emp ADID']) row.EmpADID = String(row['Emp ADID']);
+            if (row['Full Name']) row.FullName = String(row['Full Name']);
+            if (row['Gender']) row.Gender = String(row['Gender']);
+            if (row['Emp Status']) row.EmpStatus = String(row['Emp Status']);
+            if (row['Functional Designation']) row.FunctionalDesignation = String(row['Functional Designation']);
+            if (row['Cat']) row.Cat = String(row['Cat']);
+            if (row['Role']) row.Role = String(row['Role']);
+            if (row['Team']) row.Team = String(row['Team']);
+            if (row['CBL Code']) row.CBLCode = String(row['CBL Code']);
+            if (row['CBL Code ADID']) row.CBLCodeADID = String(row['CBL Code ADID']);
+            if (row['CBL Name']) row.CBLName = String(row['CBL Name']);
+            if (row['Cluster']) row.Cluster = String(row['Cluster']);
+            if (row['RBL Code']) row.RBLCode = String(row['RBL Code']);
+            if (row['RBL ADID Code']) row.RBLADIDCode = String(row['RBL ADID Code']);
+            if (row['RBL Name']) row.RBLName = String(row['RBL Name']);
+            if (row['Region']) row.Region = String(row['Region']);
+            if (row['ZH Code']) row.ZHCode = String(row['ZH Code']);
+            if (row['ZH ADID']) row.ZHADID = String(row['ZH ADID']);
+            if (row['ZH Name']) row.ZHName = String(row['ZH Name']);
+            if (row['Zone']) row.Zone = String(row['Zone']);
+            if (row['Vertical']) row.Vertical = String(row['Vertical']);
+            if (row['Branch Code']) row.BranchCode = String(row['Branch Code']);
+            if (row['Office Location Code']) row.OfficeLocationCode = String(row['Office Location Code']);
+            if (row['Location']) row.Location = String(row['Location']);
+            if (row['City']) row.City = String(row['City']);
+            if (row['State']) row.State = String(row['State']);
+            if (row['Date Of Joining']) row.DateOfJoining = String(row['Date Of Joining']);
+            if (row['Yes Email']) row.YesEmail = String(row['Yes Email']);
+            if (row['Mobile']) row.Mobile = String(row['Mobile']);
+            if (row['Exit Month/Resign date']) row.ExitMonthResignDate = String(row['Exit Month/Resign date']);
+            if (row['Remarks']) row.Remarks = String(row['Remarks']);
+            if (row['Segment']) row.Segment = String(row['Segment']);
+            
+            // Handle backward compatibility with old field names
+            if (!row.EmpADID && row.empAdid) row.EmpADID = row.empAdid;
+            if (!row.FullName && row.fullName) row.FullName = row.fullName;
+            if (!row.FullName && row.employeeName) row.FullName = row.employeeName;
+            if (!row.RBLADIDCode && row.rblAdid) row.RBLADIDCode = row.rblAdid;
+            if (!row.RBLName && row.rblName) row.RBLName = row.rblName;
+            if (!row.Region && row.region) row.Region = row.region;
+            if (!row.ZHADID && row.zhAdid) row.ZHADID = row.zhAdid;
+            if (!row.ZHName && row.zhName) row.ZHName = row.zhName;
+            if (!row.YesEmail && row.yesEmail) row.YesEmail = row.yesEmail;
+            if (!row.Mobile && row.mobile) row.Mobile = row.mobile;
+            
+            // Make sure EmpADID is used as id if available
+            if (row.EmpADID && !row.id) row.id = row.EmpADID;
+          }
+          
+          processedData.push(row);
         }
       }
       
       // Use the database's specific table method to avoid type issues
       if (storeName === 'anchor_master') {
         // Process 100 records at a time to avoid overwhelming the database
-        for (let i = 0; i < json.length; i += 100) {
-          await db.anchor_master.bulkPut(json.slice(i, i + 100));
+        for (let i = 0; i < processedData.length; i += 100) {
+          await db.anchor_master.bulkPut(processedData.slice(i, i + 100));
         }
       } else if (storeName === 'hierarchy_master') {
-        for (let i = 0; i < json.length; i += 100) {
-          await db.hierarchy_master.bulkPut(json.slice(i, i + 100));
+        for (let i = 0; i < processedData.length; i += 100) {
+          await db.hierarchy_master.bulkPut(processedData.slice(i, i + 100));
         }
       } else if (storeName === 'holiday_master') {
-        for (let i = 0; i < json.length; i += 100) {
-          await db.holiday_master.bulkPut(json.slice(i, i + 100));
+        for (let i = 0; i < processedData.length; i += 100) {
+          await db.holiday_master.bulkPut(processedData.slice(i, i + 100));
         }
       } else if (storeName === 'pincode_branch') {
-        for (let i = 0; i < json.length; i += 100) {
-          await db.pincode_branch.bulkPut(json.slice(i, i + 100));
+        for (let i = 0; i < processedData.length; i += 100) {
+          await db.pincode_branch.bulkPut(processedData.slice(i, i + 100));
         }
       } else if (storeName === 'rm_branch') {
-        for (let i = 0; i < json.length; i += 100) {
-          await db.rm_branch.bulkPut(json.slice(i, i + 100));
+        for (let i = 0; i < processedData.length; i += 100) {
+          await db.rm_branch.bulkPut(processedData.slice(i, i + 100));
+        }
+      } else if (storeName === 'smartfin_status_updates') {
+        for (let i = 0; i < processedData.length; i += 100) {
+          await db.smartfin_status_updates.bulkPut(processedData.slice(i, i + 100));
         }
       }
       
@@ -760,13 +821,29 @@ export class MasterService {
 
   // Download Excel template for a store
   static downloadTemplate<T extends StoreName>(storeName: T) {
-    const headers = STORE_FIELDS[storeName];
-    const ws = XLSX.utils.aoa_to_sheet([headers]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Template');
-    const wbout = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
-    const blob = new Blob([wbout], { type: 'application/octet-stream' });
-    saveAs(blob, `${storeName}_template.xlsx`);
+    const workbook = XLSX.utils.book_new();
+    let data = [];
+    
+    // Create header row based on store
+    if (storeName === 'smartfin_status_updates') {
+      data.push(SMARTFIN_UPDATE_TEMPLATE_HEADERS);
+    } else {
+      data.push(STORE_FIELDS[storeName]);
+    }
+    
+    // Add a sample row
+    data.push(Array(data[0].length).fill(''));
+    
+    const worksheet = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Template');
+    
+    // Generate file name
+    const fileName = `${storeName}_template.xlsx`;
+    
+    // Create Excel file and trigger download
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    saveAs(blob, fileName);
   }
 
   // Get unique anchor names from anchor_master

@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { Menu, UserPlus, Users, FileBarChart, Database, ChevronDown, ChevronRight, LogOut, Settings, Sparkles } from "lucide-react"
+import { Menu, UserPlus, Users, FileBarChart, Database, ChevronDown, ChevronRight, LogOut, Settings, Sparkles, BarChart } from "lucide-react"
 
 import { Home } from "lucide-react"
 import Link from "next/link"
@@ -124,6 +124,9 @@ export default function Sidebar() {
                   </NavItem>
                   <NavItem href="/program-review" icon={Users}>
                     Program Review
+                  </NavItem>
+                  <NavItem href="/smartfin-update" icon={BarChart}>
+                    Smartfin Status Update
                   </NavItem>
                 </div>
               </div>

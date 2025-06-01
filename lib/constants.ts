@@ -35,4 +35,27 @@ export const ERROR_CODES = {
   INFO_RM_MANUAL: { code: "INFO_RM_MANUAL", description: "RM assigned from Excel.", module: "RM Assignment", severity: "Info" },
   INFO_RM_AUTO: { code: "INFO_RM_AUTO", description: "RM assigned automatically.", module: "RM Assignment", severity: "Info" },
   ERR_ANCHOR_PROG_REQ: { code: "ERR_ANCHOR_PROG_REQ", description: "Anchor and Program must be selected.", module: "Lead Upload", severity: "Error" }
-}; 
+};
+
+// Template headers for Smartfin Status Update
+export const SMARTFIN_UPDATE_TEMPLATE_HEADERS = [
+  "Application No",
+  "Created Date",
+  "Firm Name",
+  "Application Type",
+  "Status",
+  "Branch",
+  "Requested Amount",
+  "Sanctioned Amount",
+  "Sanction Date",
+  "Program Mapped Date",
+  "RM Name",
+  "RM TAT",
+  "CPA Name",
+  "CPA TAT",
+  "CM Name",
+  "CM TAT",
+  "Approval Requested Date",
+  "Approval TAT",
+  "Total TAT"
+]; 

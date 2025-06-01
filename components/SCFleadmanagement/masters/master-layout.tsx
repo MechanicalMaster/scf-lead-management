@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { MasterService } from "@/lib/db"
 import dbUtils from "@/lib/dbUtils"
+import { safeDbOperation } from "@/lib/db-init"
 
 interface MasterLayoutProps {
   title: string
@@ -19,7 +20,7 @@ interface MasterLayoutProps {
     date: string
     user: string
   }
-  storeName?: "anchor_master" | "hierarchy_master" | "holiday_master" | "pincode_branch" | "rm_branch" | "error_codes"
+  storeName?: "anchor_master" | "hierarchy_master" | "holiday_master" | "pincode_branch" | "rm_branch" | "error_codes" | "smartfin_status_updates"
 }
 
 export default function MasterLayout({ 
@@ -34,19 +35,43 @@ export default function MasterLayout({
   const [validationStatus, setValidationStatus] = useState<"idle" | "validating" | "success" | "error">("idle")
   const [validationMessage, setValidationMessage] = useState("")
   const [recordsCount, setRecordsCount] = useState<number | null>(null)
+  const [lastUploadTimestamp, setLastUploadTimestamp] = useState<string | null>(null)
   
-  // Initialize database and get record counts
+  // Initialize database, get record counts, and check last upload timestamp
   useEffect(() => {
     const initDB = async () => {
-      // Initialize DB with sample data if empty
-      await dbUtils.initializeDBIfEmpty();
-      
-      // Get record counts for this store
-      if (storeName) {
-        const countResult = await dbUtils.getMasterDataCounts();
-        if (countResult.success && countResult.data) {
-          setRecordsCount(countResult.data[storeName]);
+      try {
+        // Initialize DB with sample data if empty
+        await dbUtils.initializeDBIfEmpty();
+        
+        // Get record counts for this store
+        if (storeName) {
+          // Use safeDbOperation to handle potential database errors
+          const countResult = await safeDbOperation(
+            async () => dbUtils.getMasterDataCounts(),
+            { success: false, data: { 
+              anchor_master: 0,
+              hierarchy_master: 0,
+              holiday_master: 0,
+              pincode_branch: 0,
+              rm_branch: 0,
+              error_codes: 0,
+              smartfin_status_updates: 0
+            }}
+          );
+          
+          if (countResult.success && countResult.data) {
+            setRecordsCount(countResult.data[storeName]);
+          }
+          
+          // Check if there's a last upload timestamp in localStorage
+          const timestamp = localStorage.getItem(`lastUpload_${storeName}`);
+          if (timestamp) {
+            setLastUploadTimestamp(timestamp);
+          }
         }
+      } catch (error) {
+        console.error("Error initializing database:", error);
       }
     };
     
@@ -89,13 +114,34 @@ export default function MasterLayout({
     try {
       setValidationMessage("Uploading, please wait...");
       
-      const result = await MasterService.uploadExcel(storeName, file);
+      // Use safeDbOperation to handle potential database errors
+      const result = await safeDbOperation(
+        async () => MasterService.uploadExcel(storeName, file),
+        { success: false, errors: ["Database operation failed"] }
+      );
       
       if (result.success) {
+        // Store the current timestamp in localStorage
+        const now = new Date().toLocaleString();
+        localStorage.setItem(`lastUpload_${storeName}`, now);
+        setLastUploadTimestamp(now);
+        
         alert(`File '${file.name}' was successfully uploaded and processed.`);
         
         // Update the record count
-        const countResult = await dbUtils.getMasterDataCounts();
+        const countResult = await safeDbOperation(
+          async () => dbUtils.getMasterDataCounts(),
+          { success: false, data: { 
+            anchor_master: 0,
+            hierarchy_master: 0,
+            holiday_master: 0,
+            pincode_branch: 0,
+            rm_branch: 0,
+            error_codes: 0,
+            smartfin_status_updates: 0
+          }}
+        );
+        
         if (countResult.success && countResult.data) {
           setRecordsCount(countResult.data[storeName]);
         }
@@ -134,10 +180,10 @@ export default function MasterLayout({
           )}
         </div>
 
-        {lastUpdated && (
+        {(lastUpdated || lastUploadTimestamp) && (
           <div className="text-sm text-gray-500 dark:text-gray-400">
-            Last updated on <span className="font-medium">{lastUpdated.date}</span> by{" "}
-            <span className="font-medium">{lastUpdated.user}</span>
+            Last updated on <span className="font-medium">{lastUpdated?.date || lastUploadTimestamp}</span> by{" "}
+            <span className="font-medium">{lastUpdated?.user || "System"}</span>
           </div>
         )}
       </div>
