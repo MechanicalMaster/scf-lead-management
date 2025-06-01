@@ -74,15 +74,18 @@ export default function HierarchyMaster() {
   const searchTermLower = searchTerm.toLowerCase();
   const filteredData = hierarchyData.filter(
     (item) =>
-      safeString(item.empAdid).includes(searchTermLower) ||
-      safeString(item.fullName).includes(searchTermLower) ||
-      safeString(item.rblAdid).includes(searchTermLower) ||
-      safeString(item.rblName).includes(searchTermLower) ||
-      safeString(item.region).includes(searchTermLower) ||
-      safeString(item.zhAdid).includes(searchTermLower) ||
-      safeString(item.zhName).includes(searchTermLower) ||
-      safeString(item.yesEmail).includes(searchTermLower) ||
-      safeString(item.mobile).includes(searchTermLower)
+      safeString(item.EmpADID || item.empAdid).includes(searchTermLower) ||
+      safeString(item.FullName || item.fullName || item.employeeName).includes(searchTermLower) ||
+      safeString(item.RBLADIDCode || item.rblAdid).includes(searchTermLower) ||
+      safeString(item.RBLName || item.rblName).includes(searchTermLower) ||
+      safeString(item.Region || item.region).includes(searchTermLower) ||
+      safeString(item.ZHADID || item.zhAdid).includes(searchTermLower) ||
+      safeString(item.ZHName || item.zhName).includes(searchTermLower) ||
+      safeString(item.YesEmail || item.yesEmail).includes(searchTermLower) ||
+      safeString(item.Mobile || item.mobile).includes(searchTermLower) ||
+      safeString(item.Team).includes(searchTermLower) ||
+      safeString(item.Role).includes(searchTermLower) ||
+      safeString(item.Zone).includes(searchTermLower)
   )
 
   return (
@@ -142,12 +145,12 @@ export default function HierarchyMaster() {
                 <TableRow className="border-b border-gray-200 dark:border-[#1F1F23] bg-gray-50 dark:bg-[#1F1F23]">
                   <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Emp ADID</TableHead>
                   <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Full Name</TableHead>
-                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL ADID</TableHead>
-                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL Name</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Role</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Team</TableHead>
                   <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Region</TableHead>
-                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">ZH ADID</TableHead>
-                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">ZH Name</TableHead>
-                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Yes Email</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Zone</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RBL Name</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Email</TableHead>
                   <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Mobile</TableHead>
                 </TableRow>
               </TableHeader>
@@ -166,15 +169,15 @@ export default function HierarchyMaster() {
                       key={item.id || idx}
                       className="border-b border-gray-200 dark:border-[#1F1F23] hover:bg-gray-50 dark:hover:bg-[#1F1F23]/50"
                     >
-                      <TableCell className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.empAdid}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.fullName}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.rblAdid}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.rblName}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.region}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.zhAdid}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.zhName}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.yesEmail}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.mobile}</TableCell>
+                      <TableCell className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.EmpADID || item.empAdid}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.FullName || item.fullName || item.employeeName}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.Role}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.Team}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.Region || item.region}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.Zone}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.RBLName || item.rblName}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.YesEmail || item.yesEmail}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.Mobile || item.mobile}</TableCell>
                     </TableRow>
                   ))
                 )}

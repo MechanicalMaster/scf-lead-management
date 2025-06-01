@@ -25,33 +25,121 @@ export function mapAnchorUIToDB(uiData: any): AnchorMaster {
   };
 }
 
-// Map Hierarchy Master from UI to DB
+// Map Hierarchy Master from UI to DB with all required fields
 export function mapHierarchyUIToDB(uiData: any): HierarchyMaster {
   return {
-    id: uiData.empAdid || uiData.id || Date.now().toString(), // Fallback to ensure ID exists
-    employeeName: uiData.fullName || uiData.employeeName || '',
-    empAdid: uiData.empAdid || '',
-    fullName: uiData.fullName || uiData.employeeName || '',
-    rblAdid: uiData.rblAdid || '',
-    rblName: uiData.rblName || '',
-    region: uiData.region || '',
-    zhAdid: uiData.zhAdid || '',
-    zhName: uiData.zhName || '',
-    yesEmail: uiData.yesEmail || '',
-    mobile: uiData.mobile || ''
+    id: uiData.id || Date.now().toString(),
+    
+    // Required fields with fallbacks
+    EmpNo: uiData.EmpNo || uiData['Emp No'] || uiData.empAdid || '',
+    EmpADID: uiData.EmpADID || uiData['Emp ADID'] || uiData.empAdid || '',
+    FullName: uiData.FullName || uiData['Full Name'] || uiData.fullName || uiData.employeeName || '',
+    
+    // Optional fields
+    OldNo: uiData.OldNo || uiData['Old No'] || '',
+    Gender: uiData.Gender || '',
+    EmpStatus: uiData.EmpStatus || uiData['Emp Status'] || '',
+    FunctionalDesignation: uiData.FunctionalDesignation || uiData['Functional Designation'] || '',
+    Cat: uiData.Cat || '',
+    Role: uiData.Role || '',
+    Team: uiData.Team || '',
+    CBLCode: uiData.CBLCode || uiData['CBL Code'] || '',
+    CBLCodeADID: uiData.CBLCodeADID || uiData['CBL Code ADID'] || '',
+    CBLName: uiData.CBLName || uiData['CBL Name'] || '',
+    Cluster: uiData.Cluster || '',
+    RBLCode: uiData.RBLCode || uiData['RBL Code'] || '',
+    RBLADIDCode: uiData.RBLADIDCode || uiData['RBL ADID Code'] || uiData.rblAdid || '',
+    RBLName: uiData.RBLName || uiData['RBL Name'] || uiData.rblName || '',
+    Region: uiData.Region || uiData.region || '',
+    ZHCode: uiData.ZHCode || uiData['ZH Code'] || '',
+    ZHADID: uiData.ZHADID || uiData['ZH ADID'] || uiData.zhAdid || '',
+    ZHName: uiData.ZHName || uiData['ZH Name'] || uiData.zhName || '',
+    Zone: uiData.Zone || '',
+    Vertical: uiData.Vertical || '',
+    BranchCode: uiData.BranchCode || uiData['Branch Code'] || '',
+    OfficeLocationCode: uiData.OfficeLocationCode || uiData['Office Location Code'] || '',
+    Location: uiData.Location || '',
+    City: uiData.City || '',
+    State: uiData.State || '',
+    DateOfJoining: uiData.DateOfJoining || uiData['Date Of Joining'] || '',
+    YesEmail: uiData.YesEmail || uiData['Yes Email'] || uiData.yesEmail || '',
+    Mobile: uiData.Mobile || uiData.mobile || '',
+    ExitMonthResignDate: uiData.ExitMonthResignDate || uiData['Exit Month/Resign date'] || '',
+    Remarks: uiData.Remarks || '',
+    Segment: uiData.Segment || '',
+    
+    // Legacy fields for backward compatibility
+    employeeName: uiData.employeeName || uiData.FullName || uiData['Full Name'] || '',
+    empAdid: uiData.empAdid || uiData.EmpADID || uiData['Emp ADID'] || '',
+    fullName: uiData.fullName || uiData.FullName || uiData['Full Name'] || '',
+    rblAdid: uiData.rblAdid || uiData.RBLADIDCode || uiData['RBL ADID Code'] || '',
+    rblName: uiData.rblName || uiData.RBLName || uiData['RBL Name'] || '',
+    region: uiData.region || uiData.Region || '',
+    zhAdid: uiData.zhAdid || uiData.ZHADID || uiData['ZH ADID'] || '',
+    zhName: uiData.zhName || uiData.ZHName || uiData['ZH Name'] || '',
+    yesEmail: uiData.yesEmail || uiData.YesEmail || uiData['Yes Email'] || '',
+    mobile: uiData.mobile || uiData.Mobile || ''
   };
 }
 
 // Map Holiday Master from UI to DB
 export function mapHolidayUIToDB(uiData: any): HolidayMaster {
   return {
-    id: uiData.id || Date.now().toString(), // Fallback to ensure ID exists
-    date: uiData.date || '',
-    Date: uiData.Date || uiData.date || '', // For backward compatibility
+    id: uiData.id || Date.now().toString(),
+    Date: uiData.Date || uiData.date || '',
+    date: uiData.date || uiData.Date || '',
+    HolidayType: uiData.HolidayType || uiData.type || '',
+    type: uiData.type || uiData.HolidayType || '',
     name: uiData.name || '',
-    type: uiData.type || '',
-    HolidayType: uiData.HolidayType || uiData.type || '', // For backward compatibility
     description: uiData.description || ''
+  };
+}
+
+// Map Pincode Branch from UI to DB
+export function mapPincodeBranchUIToDB(uiData: any): PincodeBranch {
+  return {
+    id: uiData.id || Date.now().toString(),
+    
+    // Map new fields
+    Pincode: uiData.Pincode || uiData.pincode || '',
+    BranchCode: uiData.BranchCode || uiData['Branch Code'] || uiData.branchCode || '',
+    BranchName: uiData.BranchName || uiData['Branch Name'] || uiData.branchName || '',
+    Cluster: uiData.Cluster || '',
+    Region: uiData.Region || uiData.region || '',
+    
+    // Legacy fields for backward compatibility
+    pincode: uiData.pincode || uiData.Pincode || '',
+    branchCode: uiData.branchCode || uiData.BranchCode || uiData['Branch Code'] || '',
+    branchName: uiData.branchName || uiData.BranchName || uiData['Branch Name'] || '',
+    region: uiData.region || uiData.Region || '',
+    city: uiData.city || uiData.City || '',
+    state: uiData.state || uiData.State || '',
+    active: uiData.active !== undefined ? uiData.active : true
+  };
+}
+
+// Map RM Branch from UI to DB - Fix linter errors by adding missing fields to mapRMBranchUIToDB 
+export function mapRMBranchUIToDB(uiData: any): RMBranch {
+  return {
+    id: uiData.id || Date.now().toString(),
+    rmId: uiData.rmId || '',
+    rmName: uiData.rmName || '',
+    branchCode: uiData.branchCode || '',
+    branchName: uiData.branchName || '',
+    region: uiData.region || '',
+    role: uiData.role || '',
+    active: uiData.active !== undefined ? uiData.active : true
+  };
+}
+
+// Map ErrorCode from UI to DB - Fix linter errors by adding missing fields to mapErrorCodeUIToDB
+export function mapErrorCodeUIToDB(uiData: any): ErrorCodeMaster {
+  return {
+    id: uiData.id || uiData.errorCode || Date.now().toString(),
+    errorCode: uiData.errorCode || '',
+    description: uiData.description || '',
+    module: uiData.module || '',
+    severity: uiData.severity || 'Error'
   };
 }
 
@@ -105,6 +193,23 @@ export async function initializeDBIfEmpty() {
       const sampleHierarchy: HierarchyMaster[] = [
         {
           id: "EMP001",
+          // New required fields
+          EmpNo: "EMP001",
+          EmpADID: "EMP001",
+          FullName: "Vikram Mehta",
+          // Optional new fields
+          Role: "RM",
+          Team: "Sales",
+          Region: "North",
+          Zone: "North Zone",
+          RBLCode: "RBL001",
+          RBLADIDCode: "RBL001",
+          RBLName: "RBL Name 1",
+          ZHADID: "ZH001",
+          ZHName: "ZH Name 1",
+          YesEmail: "vikram.mehta@example.com",
+          Mobile: "9876543210",
+          // Legacy fields
           employeeName: "Vikram Mehta",
           empAdid: "EMP001",
           fullName: "Vikram Mehta",
@@ -118,6 +223,23 @@ export async function initializeDBIfEmpty() {
         },
         {
           id: "EMP002",
+          // New required fields
+          EmpNo: "EMP002",
+          EmpADID: "EMP002",
+          FullName: "Neha Gupta",
+          // Optional new fields
+          Role: "RM",
+          Team: "Support",
+          Region: "West",
+          Zone: "West Zone",
+          RBLCode: "RBL002",
+          RBLADIDCode: "RBL002",
+          RBLName: "RBL Name 2",
+          ZHADID: "ZH002",
+          ZHName: "ZH Name 2",
+          YesEmail: "neha.gupta@example.com",
+          Mobile: "9123456780",
+          // Legacy fields
           employeeName: "Neha Gupta",
           empAdid: "EMP002",
           fullName: "Neha Gupta",
@@ -183,6 +305,52 @@ export async function initializeDBIfEmpty() {
       console.log("Initialized error codes data");
     }
     
+    // Check if pincode_branch is empty
+    const pincodeCount = await db.pincode_branch.count();
+    if (pincodeCount === 0) {
+      // Sample Pincode Branch data
+      const samplePincodeBranches: PincodeBranch[] = [
+        {
+          id: "pin-001",
+          // New fields
+          Pincode: "400001",
+          BranchCode: "BRANCH001",
+          BranchName: "Mumbai Main",
+          Cluster: "Mumbai Metropolitan",
+          Region: "West",
+          // Legacy fields
+          pincode: "400001",
+          branchCode: "BRANCH001",
+          branchName: "Mumbai Main",
+          city: "Mumbai",
+          state: "Maharashtra",
+          region: "West",
+          active: true
+        },
+        {
+          id: "pin-002",
+          // New fields
+          Pincode: "110001",
+          BranchCode: "BRANCH002",
+          BranchName: "Delhi Central",
+          Cluster: "Delhi NCR",
+          Region: "North",
+          // Legacy fields
+          pincode: "110001",
+          branchCode: "BRANCH002",
+          branchName: "Delhi Central",
+          city: "New Delhi",
+          state: "Delhi",
+          region: "North",
+          active: true
+        }
+      ];
+      
+      // Insert sample pincode branches
+      await db.pincode_branch.bulkAdd(samplePincodeBranches);
+      console.log("Initialized sample pincode branch data");
+    }
+    
     return { success: true };
   } catch (error: any) {
     console.error("Error initializing DB:", error);
@@ -215,5 +383,8 @@ export default {
   getMasterDataCounts,
   mapAnchorUIToDB,
   mapHierarchyUIToDB,
-  mapHolidayUIToDB
+  mapHolidayUIToDB,
+  mapPincodeBranchUIToDB,
+  mapRMBranchUIToDB,
+  mapErrorCodeUIToDB
 }; 

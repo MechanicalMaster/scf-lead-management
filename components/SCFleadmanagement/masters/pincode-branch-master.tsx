@@ -74,11 +74,11 @@ export default function PincodeBranchMaster() {
   const searchTermLower = searchTerm.toLowerCase();
   const filteredData = pincodeData.filter(
     (item) =>
-      safeString(item.pincode).includes(searchTermLower) ||
-      safeString(item.branchCode).includes(searchTermLower) ||
-      safeString(item.branchName).includes(searchTermLower) ||
-      safeString(item.city).includes(searchTermLower) ||
-      safeString(item.state).includes(searchTermLower)
+      safeString(item.Pincode || item.pincode).includes(searchTermLower) ||
+      safeString(item.BranchCode || item.branchCode).includes(searchTermLower) ||
+      safeString(item.BranchName || item.branchName).includes(searchTermLower) ||
+      safeString(item.Cluster).includes(searchTermLower) ||
+      safeString(item.Region || item.region).includes(searchTermLower)
   )
 
   return (
@@ -135,16 +135,14 @@ export default function PincodeBranchMaster() {
                   <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Pincode</TableHead>
                   <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Branch Code</TableHead>
                   <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Branch Name</TableHead>
-                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">City</TableHead>
-                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">State</TableHead>
+                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Cluster</TableHead>
                   <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Region</TableHead>
-                  <TableHead className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredData.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-6 text-gray-500 dark:text-gray-400">
+                    <TableCell colSpan={5} className="text-center py-6 text-gray-500 dark:text-gray-400">
                       {pincodeData.length === 0 
                         ? "No pincode-branch data available. Use the Upload tab to add data." 
                         : "No results found for your search."}
@@ -156,23 +154,11 @@ export default function PincodeBranchMaster() {
                       key={item.id || idx}
                       className="border-b border-gray-200 dark:border-[#1F1F23] hover:bg-gray-50 dark:hover:bg-[#1F1F23]/50"
                     >
-                      <TableCell className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.pincode}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.branchCode}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.branchName}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.city}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.state}</TableCell>
-                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.region}</TableCell>
-                      <TableCell className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            item.active
-                              ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300"
-                              : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
-                          }`}
-                        >
-                          {item.active ? "Active" : "Inactive"}
-                        </span>
-                      </TableCell>
+                      <TableCell className="px-4 py-3 font-medium text-gray-900 dark:text-white">{item.Pincode || item.pincode}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.BranchCode || item.branchCode}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.BranchName || item.branchName}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.Cluster}</TableCell>
+                      <TableCell className="px-4 py-3 text-gray-700 dark:text-gray-300">{item.Region || item.region}</TableCell>
                     </TableRow>
                   ))
                 )}

@@ -25,16 +25,52 @@ export interface AnchorMaster {
 
 export interface HierarchyMaster {
   id: string;
-  employeeName: string;
-  empAdid: string;
-  fullName: string;
-  rblAdid: string;
-  rblName: string;
-  region: string;
-  zhAdid: string;
-  zhName: string;
-  yesEmail: string;
-  mobile: string;
+  OldNo?: string;
+  EmpNo: string;
+  EmpADID: string;
+  FullName: string;
+  Gender?: string;
+  EmpStatus?: string;
+  FunctionalDesignation?: string;
+  Cat?: string;
+  Role?: string;
+  Team?: string;
+  CBLCode?: string;
+  CBLCodeADID?: string;
+  CBLName?: string;
+  Cluster?: string;
+  RBLCode?: string;
+  RBLADIDCode?: string;
+  RBLName?: string;
+  Region?: string;
+  ZHCode?: string;
+  ZHADID?: string;
+  ZHName?: string;
+  Zone?: string;
+  Vertical?: string;
+  BranchCode?: string;
+  OfficeLocationCode?: string;
+  Location?: string;
+  City?: string;
+  State?: string;
+  DateOfJoining?: string;
+  YesEmail?: string;
+  Mobile?: string;
+  ExitMonthResignDate?: string;
+  Remarks?: string;
+  Segment?: string;
+  
+  // Legacy fields for backwards compatibility
+  employeeName?: string;
+  empAdid?: string;
+  fullName?: string;
+  rblAdid?: string;
+  rblName?: string;
+  region?: string;
+  zhAdid?: string;
+  zhName?: string;
+  yesEmail?: string;
+  mobile?: string;
 }
 
 export interface HolidayMaster {
@@ -49,13 +85,20 @@ export interface HolidayMaster {
 
 export interface PincodeBranch {
   id: string;
-  pincode: string;
-  branchCode: string;
-  branchName: string;
-  city: string;
-  state: string;
-  region: string;
-  active: boolean;
+  Pincode: string;
+  BranchCode: string;
+  BranchName: string;
+  Cluster: string;
+  Region: string;
+  
+  // Legacy fields for backwards compatibility
+  pincode?: string;
+  branchCode?: string;
+  branchName?: string;
+  city?: string;
+  state?: string;
+  region?: string;
+  active?: boolean;
 }
 
 export interface RMBranch {
@@ -275,6 +318,90 @@ export class SCFLeadManagementDB extends Dexie {
       error_codes: '++id, errorCode, module, severity',
       processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode'
     });
+
+    // Version 8: Update PincodeBranch and HierarchyMaster schemas with new fields
+    this.version(8).stores({
+      pincode_branch: 'id, Pincode, BranchCode, BranchName, Cluster, Region',
+      hierarchy_master: 'id, EmpADID, FullName, Role, Team, Region, Zone',
+      
+      // Carry forward all other table definitions
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeAdid, psmAdid, currentAssigneeType, nextFollowUpTimestamp, updatedAt',
+      ai_prompts_master: 'id, name, category, prompt, systemPrompt, modelType',
+      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail, aiTokensConsumed',
+      anchor_master: 'id, anchorname, programname, anchoruuid, programuuid, segment, PSMName, PSMADID',
+      holiday_master: 'id, Date, HolidayType, date, name, type, description',
+      rm_branch: 'id, rmId, rmName, branchCode, branchName, region, role, active',
+      error_codes: '++id, errorCode, module, severity',
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, errorCode'
+    });
+
+    // Version 8: Add upgrade function to migrate old data
+    this.version(8).upgrade(async tx => {
+      console.log('Running database upgrade to version 8...');
+      
+      // Migrate PincodeBranch records
+      try {
+        const pincodeBranches = await tx.table('pincode_branch').toArray();
+        console.log(`Migrating ${pincodeBranches.length} pincode branch records...`);
+        
+        for (const pb of pincodeBranches) {
+          const updates: Partial<PincodeBranch> = {};
+          
+          // Map old fields to new fields if new fields don't exist
+          if (pb.pincode && !pb.Pincode) updates.Pincode = pb.pincode;
+          if (pb.branchCode && !pb.BranchCode) updates.BranchCode = pb.branchCode;
+          if (pb.branchName && !pb.BranchName) updates.BranchName = pb.branchName;
+          if (pb.region && !pb.Region) updates.Region = pb.region;
+          
+          // Set Cluster if it doesn't exist
+          if (!pb.Cluster) updates.Cluster = pb.region || 'Default'; // Use region as default cluster if available
+          
+          // Only update if we have changes
+          if (Object.keys(updates).length > 0) {
+            await tx.table('pincode_branch').update(pb.id, updates);
+          }
+        }
+        
+        console.log('Pincode branch migration completed');
+      } catch (error) {
+        console.error('Error migrating pincode branches:', error);
+      }
+      
+      // Migrate HierarchyMaster records
+      try {
+        const hierarchyRecords = await tx.table('hierarchy_master').toArray();
+        console.log(`Migrating ${hierarchyRecords.length} hierarchy records...`);
+        
+        for (const hr of hierarchyRecords) {
+          const updates: Partial<HierarchyMaster> = {};
+          
+          // Map old fields to new fields if new fields don't exist
+          if (hr.empAdid && !hr.EmpADID) updates.EmpADID = hr.empAdid;
+          if ((hr.fullName || hr.employeeName) && !hr.FullName) {
+            updates.FullName = hr.fullName || hr.employeeName || '';
+          }
+          if (hr.rblAdid && !hr.RBLADIDCode) updates.RBLADIDCode = hr.rblAdid;
+          if (hr.rblName && !hr.RBLName) updates.RBLName = hr.rblName;
+          if (hr.region && !hr.Region) updates.Region = hr.region;
+          if (hr.zhAdid && !hr.ZHADID) updates.ZHADID = hr.zhAdid;
+          if (hr.zhName && !hr.ZHName) updates.ZHName = hr.zhName;
+          if (hr.yesEmail && !hr.YesEmail) updates.YesEmail = hr.yesEmail;
+          if (hr.mobile && !hr.Mobile) updates.Mobile = hr.mobile;
+          
+          // Initialize required new fields with empty values if they don't exist
+          if (!hr.EmpNo) updates.EmpNo = hr.empAdid || '';
+          
+          // Only update if we have changes
+          if (Object.keys(updates).length > 0) {
+            await tx.table('hierarchy_master').update(hr.id, updates);
+          }
+        }
+        
+        console.log('Hierarchy master migration completed');
+      } catch (error) {
+        console.error('Error migrating hierarchy records:', error);
+      }
+    });
   }
 }
 
@@ -287,9 +414,9 @@ console.log(`Database schema version defined: ${db.verno}`);
 // --- Utility: Store fields for Excel templates/validation ---
 const STORE_FIELDS: Record<StoreName, string[]> = {
   anchor_master: ['id', 'anchorname', 'programname', 'anchoruuid', 'programuuid', 'segment', 'PSMName', 'PSMADID', 'PSMEmail', 'UDF1', 'UDF2'],
-  hierarchy_master: ['id', 'employeeName', 'empAdid', 'fullName', 'rblAdid', 'rblName', 'region', 'zhAdid', 'zhName', 'yesEmail', 'mobile'],
+  hierarchy_master: ['id', 'Old No', 'Emp No', 'Emp ADID', 'Full Name', 'Gender', 'Emp Status', 'Functional Designation', 'Cat', 'Role', 'Team', 'CBL Code', 'CBL Code ADID', 'CBL Name', 'Cluster', 'RBL Code', 'RBL ADID Code', 'RBL Name', 'Region', 'ZH Code', 'ZH ADID', 'ZH Name', 'Zone', 'Vertical', 'Branch Code', 'Office Location Code', 'Location', 'City', 'State', 'Date Of Joining', 'Yes Email', 'Mobile', 'Exit Month/Resign date', 'Remarks', 'Segment'],
   holiday_master: ['id', 'Date', 'HolidayType', 'date', 'name', 'type', 'description'],
-  pincode_branch: ['id', 'pincode', 'branchCode', 'branchName', 'city', 'state', 'region', 'active'],
+  pincode_branch: ['id', 'Pincode', 'Branch Code', 'Branch Name', 'Cluster', 'Region'],
   rm_branch: ['id', 'rmId', 'rmName', 'branchCode', 'branchName', 'region', 'role', 'active'],
   error_codes: ['id', 'errorCode', 'description', 'module', 'severity'],
   processed_leads: [],  // No direct upload via master UI, populated programmatically
@@ -434,6 +561,76 @@ export class MasterService {
           // If new fields are present but old fields aren't, copy values
           if (row.date && !row.Date) row.Date = row.date;
           if (row.type && !row.HolidayType) row.HolidayType = row.type;
+        }
+        
+        // Handle field mappings for Pincode Branch - map new fields to our interface properties
+        if (storeName === 'pincode_branch') {
+          // Map Excel headers to interface properties
+          if (row['Pincode']) row.Pincode = String(row['Pincode']);
+          if (row['Branch Code']) row.BranchCode = String(row['Branch Code']);
+          if (row['Branch Name']) row.BranchName = String(row['Branch Name']);
+          if (row['Cluster']) row.Cluster = String(row['Cluster']);
+          if (row['Region']) row.Region = String(row['Region']);
+          
+          // Handle backward compatibility with old field names
+          if (!row.Pincode && row.pincode) row.Pincode = row.pincode;
+          if (!row.BranchCode && row.branchCode) row.BranchCode = row.branchCode;
+          if (!row.BranchName && row.branchName) row.BranchName = row.branchName;
+          if (!row.Region && row.region) row.Region = row.region;
+        }
+        
+        // Handle field mappings for Hierarchy Master - map new fields to our interface properties
+        if (storeName === 'hierarchy_master') {
+          // Map Excel headers to interface properties
+          if (row['Old No']) row.OldNo = String(row['Old No']);
+          if (row['Emp No']) row.EmpNo = String(row['Emp No']);
+          if (row['Emp ADID']) row.EmpADID = String(row['Emp ADID']);
+          if (row['Full Name']) row.FullName = String(row['Full Name']);
+          if (row['Gender']) row.Gender = String(row['Gender']);
+          if (row['Emp Status']) row.EmpStatus = String(row['Emp Status']);
+          if (row['Functional Designation']) row.FunctionalDesignation = String(row['Functional Designation']);
+          if (row['Cat']) row.Cat = String(row['Cat']);
+          if (row['Role']) row.Role = String(row['Role']);
+          if (row['Team']) row.Team = String(row['Team']);
+          if (row['CBL Code']) row.CBLCode = String(row['CBL Code']);
+          if (row['CBL Code ADID']) row.CBLCodeADID = String(row['CBL Code ADID']);
+          if (row['CBL Name']) row.CBLName = String(row['CBL Name']);
+          if (row['Cluster']) row.Cluster = String(row['Cluster']);
+          if (row['RBL Code']) row.RBLCode = String(row['RBL Code']);
+          if (row['RBL ADID Code']) row.RBLADIDCode = String(row['RBL ADID Code']);
+          if (row['RBL Name']) row.RBLName = String(row['RBL Name']);
+          if (row['Region']) row.Region = String(row['Region']);
+          if (row['ZH Code']) row.ZHCode = String(row['ZH Code']);
+          if (row['ZH ADID']) row.ZHADID = String(row['ZH ADID']);
+          if (row['ZH Name']) row.ZHName = String(row['ZH Name']);
+          if (row['Zone']) row.Zone = String(row['Zone']);
+          if (row['Vertical']) row.Vertical = String(row['Vertical']);
+          if (row['Branch Code']) row.BranchCode = String(row['Branch Code']);
+          if (row['Office Location Code']) row.OfficeLocationCode = String(row['Office Location Code']);
+          if (row['Location']) row.Location = String(row['Location']);
+          if (row['City']) row.City = String(row['City']);
+          if (row['State']) row.State = String(row['State']);
+          if (row['Date Of Joining']) row.DateOfJoining = String(row['Date Of Joining']);
+          if (row['Yes Email']) row.YesEmail = String(row['Yes Email']);
+          if (row['Mobile']) row.Mobile = String(row['Mobile']);
+          if (row['Exit Month/Resign date']) row.ExitMonthResignDate = String(row['Exit Month/Resign date']);
+          if (row['Remarks']) row.Remarks = String(row['Remarks']);
+          if (row['Segment']) row.Segment = String(row['Segment']);
+          
+          // Handle backward compatibility with old field names
+          if (!row.EmpADID && row.empAdid) row.EmpADID = row.empAdid;
+          if (!row.FullName && row.fullName) row.FullName = row.fullName;
+          if (!row.FullName && row.employeeName) row.FullName = row.employeeName;
+          if (!row.RBLADIDCode && row.rblAdid) row.RBLADIDCode = row.rblAdid;
+          if (!row.RBLName && row.rblName) row.RBLName = row.rblName;
+          if (!row.Region && row.region) row.Region = row.region;
+          if (!row.ZHADID && row.zhAdid) row.ZHADID = row.zhAdid;
+          if (!row.ZHName && row.zhName) row.ZHName = row.zhName;
+          if (!row.YesEmail && row.yesEmail) row.YesEmail = row.yesEmail;
+          if (!row.Mobile && row.mobile) row.Mobile = row.mobile;
+          
+          // Make sure EmpADID is used as id if available
+          if (row.EmpADID && !row.id) row.id = row.EmpADID;
         }
       }
       
