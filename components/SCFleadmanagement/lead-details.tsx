@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from "react"
 import { 
-  ArrowLeft, MessageSquare, Mail, AlertTriangle, 
+  ArrowLeft, MessageSquare, Mail, 
   Calendar, Clock, Check, ChevronDown, ChevronUp, 
-  FileText, Send, Download, Sparkles 
+  FileText, Send, Download, Sparkles, AlertTriangle 
 } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,8 @@ import {
 import { format } from "date-fns"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { safeDbOperation } from "@/lib/db-init"
+import { ProcessedLead } from "@/lib/db"
+import db from "@/lib/db"
 
 interface LeadHistory {
   id: string
@@ -117,8 +119,10 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
   const [expandedItems, setExpandedItems] = useState<string[]>([])
   const [communications, setCommunications] = useState<LeadCommunication[]>([])
   const [workflowState, setWorkflowState] = useState<LeadWorkflowState | null>(null)
+  const [processedLeadData, setProcessedLeadData] = useState<ProcessedLead | null>(null)
   const [loadingComms, setLoadingComms] = useState(true)
   const [loadingWorkflowState, setLoadingWorkflowState] = useState(true)
+  const [loadingProcessedLead, setLoadingProcessedLead] = useState(true)
   const [mounted, setMounted] = useState(false)
 
   // Set mounted flag on client side
@@ -174,6 +178,28 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
     }
     
     fetchCommunications()
+  }, [leadId, mounted])
+  
+  // Fetch processed lead data
+  useEffect(() => {
+    // Skip fetching on server-side or if not mounted
+    if (!isBrowser() || !mounted) return;
+
+    async function fetchProcessedLeadData() {
+      try {
+        const pLead = await safeDbOperation(
+          () => db.processed_leads.get(leadId),
+          null
+        );
+        setProcessedLeadData(pLead || null);
+      } catch (err) {
+        console.error("Error fetching processed lead data:", err)
+      } finally {
+        setLoadingProcessedLead(false)
+      }
+    }
+    
+    fetchProcessedLeadData()
   }, [leadId, mounted])
 
   // Skip rendering until mounted to prevent hydration mismatch
@@ -249,55 +275,13 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
             </Button>
           </Link>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Lead Details: {leadId}
+            Lead Details: {processedLeadData?.smartfinLeadId || leadId}
           </h1>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 dark:bg-[#1F1F23] border-b border-gray-200 dark:border-[#1F1F23]">
-              <h2 className="text-lg font-medium text-gray-900 dark:text-white">AI Escalation Status</h2>
-            </div>
-            <div className="p-4">
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                    <AlertTriangle className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-white">With RM - Monitoring</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">4 days until 7-day reminder</p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Escalation Timeline</p>
-                  <div className="bg-gray-100 dark:bg-[#1F1F23] rounded-md p-3 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-xs text-blue-600 dark:text-blue-400 font-medium">1</div>
-                      <p className="text-sm text-gray-700 dark:text-gray-300">Lead Upload - {workflowState?.createdAt ? formatDateFromISOString(workflowState.createdAt) : 'N/A'}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-xs text-blue-600 dark:text-blue-400 font-medium">2</div>
-                      <p className="text-sm text-gray-700 dark:text-gray-300">7-Day Reminder</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-500 dark:text-gray-400 font-medium">3</div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Escalation 1 (Day 15)</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-500 dark:text-gray-400 font-medium">4</div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Escalation 2 (Day 20)</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-2">
+      <div className="grid grid-cols-1 gap-6">
+        <div className="w-full">
           <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] overflow-hidden">
             <div className="border-b border-gray-200 dark:border-[#1F1F23] flex px-4">
               <div className="flex-1">
