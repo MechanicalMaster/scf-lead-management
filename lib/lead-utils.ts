@@ -292,4 +292,74 @@ export async function safeHandleNewLeadAssignment(
     console.error('Error in safe lead assignment:', error);
     return false;
   }
+}
+
+/**
+ * Function to get the next available Smartfin numeric value
+ * Queries all existing smartfinLeadId values and returns the next sequential number
+ */
+export async function getNextSmartfinNumericValue(): Promise<number> {
+  try {
+    // Get all processed leads with smartfinLeadId values
+    const allLeads = await db.processed_leads
+      .where('smartfinLeadId')
+      .above('') // Only get leads with non-empty smartfinLeadId
+      .toArray();
+    
+    console.log(`Found ${allLeads.length} leads with existing Smartfin IDs`);
+    
+    if (allLeads.length === 0) {
+      // No existing Smartfin IDs, start from 1
+      console.log('No existing Smartfin IDs found, starting from 1');
+      return 1;
+    }
+    
+    // Extract numeric values from existing Smartfin IDs
+    const numericValues: number[] = [];
+    
+    for (const lead of allLeads) {
+      if (lead.smartfinLeadId && lead.smartfinLeadId.startsWith('DEALER')) {
+        // Extract the 6-digit numeric part (e.g., from "DEALER000123" extract 123)
+        const numericPart = lead.smartfinLeadId.substring(6); // Remove "DEALER" prefix
+        const numericValue = parseInt(numericPart, 10);
+        
+        if (!isNaN(numericValue)) {
+          numericValues.push(numericValue);
+        }
+      }
+    }
+    
+    if (numericValues.length === 0) {
+      // No valid numeric values found, start from 1
+      console.log('No valid numeric Smartfin IDs found, starting from 1');
+      return 1;
+    }
+    
+    // Find the maximum value and return the next one
+    const maxValue = Math.max(...numericValues);
+    const nextValue = maxValue + 1;
+    
+    console.log(`Maximum existing Smartfin numeric value: ${maxValue}, next value: ${nextValue}`);
+    return nextValue;
+    
+  } catch (error) {
+    console.error('Error getting next Smartfin numeric value:', error);
+    // Return 1 as fallback in case of error
+    return 1;
+  }
+}
+
+/**
+ * Function to format a numeric value into a Smartfin Lead ID
+ * Takes a numeric value and formats it as "DEALER" + 6-digit padded number
+ */
+export function formatSmartfinLeadId(numericValue: number): string {
+  // Pad the numeric value to 6 digits with leading zeros
+  const paddedNumber = numericValue.toString().padStart(6, '0');
+  
+  // Prepend the "DEALER" prefix
+  const smartfinLeadId = `DEALER${paddedNumber}`;
+  
+  console.log(`Formatted Smartfin Lead ID: ${smartfinLeadId} from numeric value: ${numericValue}`);
+  return smartfinLeadId;
 } 

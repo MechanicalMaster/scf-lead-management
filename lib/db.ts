@@ -137,6 +137,7 @@ export interface ProcessedLead {
   smartfinDealerId?: string | null;
   smartfinErrorCode?: string | null;
   smartfinErrorDescription?: string | null;
+  smartfinLeadId: string; // New field for Smartfin Lead ID
 }
 
 // Define the updated LeadCommunication interface separately to avoid type conflicts
@@ -575,6 +576,48 @@ export class SCFLeadManagementDB extends Dexie {
       lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail, recipientAdidOrEmail, leadId, rmEmail, messageType',
       lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeType, currentAssigneeAdid, psmAdid, updatedAt',
       smartfin_status_updates: 'applicationNo, firmName, status, rmName, createdDate',
+    });
+
+    // Version 13: Add smartfinLeadId field to processed_leads table
+    this.version(13).stores({
+      // Update processed_leads table to include smartfinLeadId index
+      processed_leads: 'id, uploadBatchId, processedTimestamp, anchorNameSelected, programNameSelected, assignedRmAdid, assignmentStatus, smartfinLeadId',
+      
+      // Carry forward all other table definitions
+      email_template_master: 'id, templateName, category, isActive',
+      anchor_master: 'id, anchorname, programname, segment',
+      hierarchy_master: 'id, EmpADID, FullName, YesEmail, RBLADIDCode, RBLName, ZHADID, ZHName, CBLCodeADID',
+      holiday_master: 'id, date, Date, type, HolidayType',
+      pincode_branch: 'id, Pincode, BranchCode, BranchName, Region',
+      rm_branch: 'id, rmId, rmName, branchCode, region, active',
+      error_codes: 'id, errorCode, module, severity',
+      lead_communications: 'id, processedLeadId, timestamp, communicationType, senderType, senderAdidOrEmail, recipientAdidOrEmail, leadId, rmEmail, messageType',
+      lead_workflow_states: 'id, processedLeadId, currentStage, currentAssigneeType, currentAssigneeAdid, psmAdid, updatedAt',
+      smartfin_status_updates: 'applicationNo, firmName, status, rmName, createdDate',
+    });
+
+    // Version 13: Add upgrade function to handle existing data
+    this.version(13).upgrade(async tx => {
+      console.log('Running database upgrade to version 13...');
+      
+      try {
+        const processedLeads = await tx.table('processed_leads').toArray();
+        console.log(`Initializing smartfinLeadId for ${processedLeads.length} existing leads...`);
+        
+        for (const lead of processedLeads) {
+          // Initialize smartfinLeadId to empty string for existing records
+          // New leads will get proper Smartfin IDs during creation
+          if (!lead.smartfinLeadId) {
+            await tx.table('processed_leads').update(lead.id, {
+              smartfinLeadId: ''
+            });
+          }
+        }
+        
+        console.log('Smartfin Lead ID initialization completed');
+      } catch (error) {
+        console.error('Error initializing smartfinLeadId field:', error);
+      }
     });
   }
 }

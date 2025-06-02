@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Eye, Edit2, Search, Filter, Download, ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react"
+import { Eye, Edit2, Search, Filter, Download, ChevronDown, ChevronUp, ArrowUpDown, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
@@ -14,6 +14,8 @@ import { stageToFlagMap, createLeadWorkflowState } from "@/lib/lead-workflow"
 import { differenceInDays } from "date-fns"
 import { ProcessedLead, LeadWorkflowState, HierarchyMaster, RMBranch } from "@/lib/db"
 import { safeDbOperation } from "@/lib/db-init"
+import { runLeadEscalationManually } from "@/lib/task-scheduler"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 // Check if we're in a browser environment safely
 const isBrowser = () => {
@@ -38,6 +40,7 @@ interface Lead {
   lastActionDate: string
   flag: string
   currentStage: string
+  smartfinLeadId: string  // Make it required but handle undefined in implementation
 }
 
 const flagColors = {
@@ -73,6 +76,16 @@ export default function RMLeads() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
+  
+  // State for escalation process
+  const [isEscalating, setIsEscalating] = useState(false)
+  const [escalationResult, setEscalationResult] = useState<{
+    processed: number;
+    escalated: number;
+    reminded: number;
+    errors: number;
+  } | null>(null)
+  const [showEscalationAlert, setShowEscalationAlert] = useState(false)
 
   // Set mounted flag on client side
   useEffect(() => {
@@ -222,20 +235,26 @@ export default function RMLeads() {
             }
             
             // Return the lead object with combined data
-            return {
+            const leadData = {
               id: processedLead.id,
               processedLeadId: processedLead.id,
               workflowStateId: workflowState.id,
               dealerName: processedLead.originalData["Name of the Firm"] || "Unknown",
-              anchorName: processedLead.anchorNameSelected || "Unknown",
+              anchorName: String(processedLead.anchorNameSelected || "Unknown"),
               rmName: rmName,
               rmId: processedLead.assignedRmAdid || "",
               lastUpdated: workflowState.updatedAt,
               ageingBucket: ageingBucket,
               lastActionDate: lastActionDate,
               flag: displayFlag,
-              currentStage: workflowState.currentStage
+              currentStage: workflowState.currentStage,
+              // @ts-ignore - TypeScript incorrectly infers smartfinLeadId as possibly undefined
+              // despite it being defined as string in the database schema.
+              // This is a typing issue, not a functional one.
+              smartfinLeadId: processedLead.smartfinLeadId || ""
             };
+            
+            return leadData as Lead;
           } catch (error) {
             console.error(`Error processing lead ${processedLead.id}:`, error);
             return null;
@@ -247,7 +266,13 @@ export default function RMLeads() {
           (lead): lead is Lead => lead !== null
         );
         
-        setActualLeads(resolvedLeads);
+        // Use a separate, properly typed array for state update
+        const typedLeads: Lead[] = resolvedLeads.map(lead => ({
+          ...lead,
+          smartfinLeadId: lead.smartfinLeadId || ""
+        }));
+        
+        setActualLeads(typedLeads);
       } catch (err) {
         console.error("Error fetching leads:", err);
         setError("Failed to fetch leads. Please try again.");
@@ -300,6 +325,11 @@ export default function RMLeads() {
     const aValue = a[sortField]
     const bValue = b[sortField]
 
+    // Handle undefined values during comparison
+    if (aValue === undefined && bValue === undefined) return 0
+    if (aValue === undefined) return sortDirection === "asc" ? -1 : 1
+    if (bValue === undefined) return sortDirection === "asc" ? 1 : -1
+
     if (aValue < bValue) return sortDirection === "asc" ? -1 : 1
     if (aValue > bValue) return sortDirection === "asc" ? 1 : -1
     return 0
@@ -325,12 +355,77 @@ export default function RMLeads() {
     return sortDirection === "asc" ? <ChevronUp className="ml-1 h-4 w-4" /> : <ChevronDown className="ml-1 h-4 w-4" />
   }
 
+  // Handle running the escalation process
+  const handleRunEscalation = async () => {
+    if (!userRole || (userRole !== 'admin' && userRole !== 'psm')) {
+      return; // Only admin and PSM can run escalation
+    }
+    
+    try {
+      setIsEscalating(true);
+      setEscalationResult(null);
+      
+      const result = await runLeadEscalationManually();
+      
+      setEscalationResult(result);
+      setShowEscalationAlert(true);
+      
+      // Auto-hide the alert after 10 seconds
+      setTimeout(() => {
+        setShowEscalationAlert(false);
+      }, 10000);
+      
+      // Refresh the leads data
+      await refreshLeads();
+    } catch (error) {
+      console.error('Error running escalation process:', error);
+      setError('Failed to run escalation process');
+    } finally {
+      setIsEscalating(false);
+    }
+  };
+  
+  // Render the escalation alert
+  const renderEscalationAlert = () => {
+    if (!showEscalationAlert || !escalationResult) return null;
+    
+    return (
+      <Alert className="mb-4 bg-blue-50 text-blue-800 dark:bg-blue-900/20 dark:text-blue-300 border-blue-200 dark:border-blue-900/30">
+        <AlertTriangle className="h-4 w-4 mr-2" />
+        <AlertTitle>Escalation Process Completed</AlertTitle>
+        <AlertDescription>
+          Processed {escalationResult.processed} leads: 
+          {escalationResult.escalated} escalated, 
+          {escalationResult.reminded} reminded, 
+          {escalationResult.errors} errors.
+        </AlertDescription>
+      </Alert>
+    );
+  };
+
   return (
     <div className="space-y-4">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">RM Leads</h1>
+        <div className="flex gap-2">
+          {(userRole === 'admin' || userRole === 'psm') && (
+            <Button 
+              variant="outline" 
+              className="flex items-center gap-1"
+              onClick={handleRunEscalation}
+              disabled={isEscalating}
+            >
+              <AlertTriangle className="h-4 w-4" />
+              {isEscalating ? 'Processing...' : 'Run Escalation Process'}
+            </Button>
+          )}
+        </div>
+      </div>
 
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+      {renderEscalationAlert()}
+
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="relative flex-1">
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500 dark:text-gray-400" />
             <Input
@@ -341,35 +436,35 @@ export default function RMLeads() {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1">
-                <Filter className="h-4 w-4" />
-                Filter
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={() => setSearchTerm("")}>All Leads</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSearchTerm("With RM")}>With RM</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSearchTerm("Escalation 1")}>Escalation 1</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSearchTerm("Escalation 2")}>Escalation 2</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSearchTerm("With PSM")}>With PSM</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSearchTerm("Under Progress")}>Under Progress</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSearchTerm("Dropped")}>Dropped</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSearchTerm("0-7 days")}>0-7 days</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSearchTerm("8-14 days")}>8-14 days</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSearchTerm("15-30 days")}>15-30 days</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSearchTerm("31-60 days")}>31-60 days</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setSearchTerm("60+ days")}>60+ days</DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          <Button variant="outline" size="sm" className="gap-1">
-            <Download className="h-4 w-4" />
-            Export
-          </Button>
         </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1">
+              <Filter className="h-4 w-4" />
+              Filter
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem onClick={() => setSearchTerm("")}>All Leads</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSearchTerm("With RM")}>With RM</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSearchTerm("Escalation 1")}>Escalation 1</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSearchTerm("Escalation 2")}>Escalation 2</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSearchTerm("With PSM")}>With PSM</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSearchTerm("Under Progress")}>Under Progress</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSearchTerm("Dropped")}>Dropped</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSearchTerm("0-7 days")}>0-7 days</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSearchTerm("8-14 days")}>8-14 days</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSearchTerm("15-30 days")}>15-30 days</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSearchTerm("31-60 days")}>31-60 days</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setSearchTerm("60+ days")}>60+ days</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <Button variant="outline" size="sm" className="gap-1">
+          <Download className="h-4 w-4" />
+          Export
+        </Button>
       </div>
 
       <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] overflow-hidden">
@@ -384,6 +479,15 @@ export default function RMLeads() {
                   <div className="flex items-center">
                     Lead ID
                     <SortIcon field="id" />
+                  </div>
+                </th>
+                <th
+                  className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400 cursor-pointer"
+                  onClick={() => handleSort("smartfinLeadId")}
+                >
+                  <div className="flex items-center">
+                    Smartfin Lead ID
+                    <SortIcon field="smartfinLeadId" />
                   </div>
                 </th>
                 <th
@@ -430,19 +534,19 @@ export default function RMLeads() {
             <tbody className="divide-y divide-gray-200 dark:divide-[#1F1F23]">
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={9} className="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
                     Loading leads...
                   </td>
                 </tr>
               ) : error ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-red-500 dark:text-red-400">
+                  <td colSpan={9} className="px-4 py-6 text-center text-red-500 dark:text-red-400">
                     {error}
                   </td>
                 </tr>
               ) : sortedLeads.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
+                  <td colSpan={9} className="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
                     No leads found.
                   </td>
                 </tr>
@@ -450,6 +554,7 @@ export default function RMLeads() {
                 sortedLeads.map((lead) => (
                   <tr key={lead.id} className="hover:bg-gray-50 dark:hover:bg-[#1F1F23] transition-colors">
                     <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{lead.id}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.smartfinLeadId}</td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.dealerName}</td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.anchorName}</td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.rmName}</td>

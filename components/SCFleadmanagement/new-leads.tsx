@@ -16,9 +16,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import { LEAD_TEMPLATE_HEADERS, ERROR_CODES } from "@/lib/constants"
-import type { PincodeBranch, RMBranch, ErrorCodeMaster, ProcessedLead } from "@/lib/db"
+import type { PincodeBranch, RMBranch, ErrorCodeMaster, ProcessedLead, AnchorMaster, HierarchyMaster } from "@/lib/db"
 import { v4 as uuidv4 } from 'uuid';
-import { getEmailFromRmAdid, getPSMDetailsFromAnchor, safeHandleNewLeadAssignment } from "@/lib/lead-utils"
+import { getEmailFromRmAdid, getPSMDetailsFromAnchor, safeHandleNewLeadAssignment, getNextSmartfinNumericValue, formatSmartfinLeadId } from "@/lib/lead-utils"
 import { uploadLeadToSmartfin } from "@/lib/smartfin-api"
 
 type UploadStatus = "idle" | "processing" | "validating" | "partial" | "success" | "failed"
@@ -36,6 +36,7 @@ interface UploadResultRow {
   smartfinStatus?: 'pending' | 'success' | 'failed'; // Smartfin upload status
   smartfinDealerId?: string; // Smartfin Dealer ID if successful
   smartfinError?: string; // Smartfin error description if failed
+  smartfinLeadId?: string; // Smartfin Lead ID for display
 }
 
 interface UploadResult {
@@ -194,6 +195,14 @@ export default function NewLeads() {
       const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '' }) as Record<string, any>[];
       console.log(`Parsed ${jsonData.length} rows from Excel file`);
       
+      // Initialize in-memory round-robin counters for this batch
+      const roundRobinCounters = new Map<string, number>();
+      
+      // Get the starting Smartfin numeric value for this batch
+      console.log("Getting next Smartfin numeric value for batch...");
+      let currentSmartfinNumericCounter = await getNextSmartfinNumericValue();
+      console.log(`Starting Smartfin numeric counter at: ${currentSmartfinNumericCounter}`);
+      
       // Prepare the upload result
       const uploadResult: UploadResult = {
         total: jsonData.length,
@@ -205,16 +214,20 @@ export default function NewLeads() {
       
       // Fetch the required master data for lookups
       console.log("Fetching master data for lead assignment...");
-      const [pincodeResult, rmBranchResult, errorCodesResult] = await Promise.all([
+      const [pincodeResult, rmBranchResult, errorCodesResult, anchorMasterResult, hierarchyMasterResult] = await Promise.all([
         MasterService.getRecords('pincode_branch', {}, undefined, 1000, 0),
         MasterService.getRecords('rm_branch', {}, undefined, 1000, 0),
-        MasterService.getRecords('error_codes', {}, undefined, 1000, 0)
+        MasterService.getRecords('error_codes', {}, undefined, 1000, 0),
+        MasterService.getRecords('anchor_master', {}, undefined, 1000, 0),
+        MasterService.getRecords('hierarchy_master', {}, undefined, 1000, 0)
       ]);
       
       // Create maps for efficient lookups
       const pincodeMap = new Map<string, PincodeBranch>();
       const rmBranchMapByBranchCode = new Map<string, RMBranch[]>();
       const errorCodesMap = new Map<string, string>();
+      const anchorMasterMap = new Map<string, AnchorMaster>();
+      const hierarchyMasterMap = new Map<string, HierarchyMaster>();
       
       if (pincodeResult.success && pincodeResult.data) {
         (pincodeResult.data as PincodeBranch[]).forEach(item => {
@@ -237,6 +250,30 @@ export default function NewLeads() {
           errorCodesMap.set(item.errorCode, item.description);
         });
         console.log(`Loaded ${errorCodesMap.size} error codes`);
+      }
+      
+      if (anchorMasterResult.success && anchorMasterResult.data) {
+        (anchorMasterResult.data as AnchorMaster[]).forEach(item => {
+          anchorMasterMap.set(item.anchorname, item);
+        });
+        console.log(`Loaded ${anchorMasterMap.size} anchors for segment mapping`);
+      }
+      
+      if (hierarchyMasterResult.success && hierarchyMasterResult.data) {
+        (hierarchyMasterResult.data as HierarchyMaster[]).forEach(item => {
+          hierarchyMasterMap.set(item.EmpADID, item);
+        });
+        console.log(`Loaded ${hierarchyMasterMap.size} hierarchy entries for RM segment mapping`);
+      }
+      
+      // Determine anchor segment
+      const anchorEntry = anchorMasterMap.get(selectedAnchor);
+      const anchorSegment = anchorEntry?.segment || "";
+      
+      if (!anchorEntry || !anchorSegment) {
+        console.log(`Warning: Could not find segment for selected anchor ${selectedAnchor}`);
+      } else {
+        console.log(`Selected anchor ${selectedAnchor} has segment: ${anchorSegment}`);
       }
       
       // Array to store processed leads for database storage
@@ -265,8 +302,12 @@ export default function NewLeads() {
           smartfinUploadStatus: null, // Initialize Smartfin fields
           smartfinDealerId: null,
           smartfinErrorCode: null,
-          smartfinErrorDescription: null
+          smartfinErrorDescription: null,
+          smartfinLeadId: formatSmartfinLeadId(currentSmartfinNumericCounter) // Generate Smartfin Lead ID
         };
+        
+        // Increment the counter for the next lead
+        currentSmartfinNumericCounter++;
         
         // Initialize UI row object
         const uiRow: UploadResultRow = {
@@ -278,8 +319,17 @@ export default function NewLeads() {
           error: ""
         };
         
+        // Early failure if anchor segment is not available
+        if (!anchorEntry || !anchorSegment) {
+          console.log(`Row ${originalRowNumber}: Anchor segment not found for ${selectedAnchor}`);
+          processedLeadEntry.errorCode = "ERR_ANCHOR_SEG_NF";
+          processedLeadEntry.assignmentStatus = "Failed: Anchor Segment Not Found";
+          processedLeadEntry.errorDescription = `Anchor ${selectedAnchor} has no segment defined`;
+          uiRow.error = "Anchor Segment Not Found";
+          uploadResult.failed++;
+        }
         // Check if RM ADID is already provided in the Excel
-        if (originalRow["RM ADID"] && String(originalRow["RM ADID"]).trim() !== "") {
+        else if (originalRow["RM ADID"] && String(originalRow["RM ADID"]).trim() !== "") {
           const rmAdid = String(originalRow["RM ADID"]);
           console.log(`Row ${originalRowNumber}: Manual RM assignment found - ${rmAdid}`);
           
@@ -312,41 +362,90 @@ export default function NewLeads() {
               uiRow.error = "Pincode not found";
               uploadResult.failed++;
             } else {
-              const branchCode = pincodeEntry.branchCode;
-              console.log(`Row ${originalRowNumber}: Pincode ${pincode} mapped to branch ${branchCode}`);
-              
-              const rmList = rmBranchMapByBranchCode.get(branchCode) || [];
-              
-              if (rmList.length === 0) {
-                console.log(`Row ${originalRowNumber}: No RMs found for branch ${branchCode}`);
-                processedLeadEntry.errorCode = "ERR_BR_NMAP";
-                processedLeadEntry.assignmentStatus = "Failed: Branch not mapped to RM";
-                uiRow.error = "Branch not mapped to RM";
+              const branchCode = pincodeEntry.branchCode || pincodeEntry.BranchCode;
+              if (!branchCode) {
+                console.log(`Row ${originalRowNumber}: No branch code found for pincode ${pincode}`);
+                processedLeadEntry.errorCode = "ERR_BR_NF";
+                processedLeadEntry.assignmentStatus = "Failed: Branch code not found";
+                uiRow.error = "Branch code not found";
                 uploadResult.failed++;
               } else {
-                // Find active RM first, then any RM
-                const activeRM = rmList.find(rm => rm.active);
-                const anyRM = rmList[0];
-                const selectedRM = activeRM || anyRM;
+                console.log(`Row ${originalRowNumber}: Pincode ${pincode} mapped to branch ${branchCode}`);
                 
-                if (selectedRM) {
-                  const rmAdid = selectedRM.rmId;
-                  console.log(`Row ${originalRowNumber}: Assigned to RM ${rmAdid} (${selectedRM.rmName})`);
-                  
-                  processedLeadEntry.assignedRmAdid = rmAdid;
-                  processedLeadEntry.assignmentStatus = "RM Assigned (Auto)";
-                  processedLeadEntry.errorCode = "INFO_RM_AUTO";
-                  processedLeadEntry.errorDescription = "RM assigned automatically";
-                  
-                  uiRow.assignedRmAdid = rmAdid;
-                  uiRow.status = "success";
-                  uploadResult.success++;
-                } else {
-                  console.log(`Row ${originalRowNumber}: Failed to find RM for branch ${branchCode}`);
-                  processedLeadEntry.errorCode = "ERR_RM_NBR";
-                  processedLeadEntry.assignmentStatus = "Failed: No RM for Branch";
-                  uiRow.error = "No RM for Branch";
+                const rmList = rmBranchMapByBranchCode.get(branchCode) || [];
+                
+                if (rmList.length === 0) {
+                  console.log(`Row ${originalRowNumber}: No RMs found for branch ${branchCode}`);
+                  processedLeadEntry.errorCode = "ERR_BR_NMAP";
+                  processedLeadEntry.assignmentStatus = "Failed: Branch not mapped to RM";
+                  uiRow.error = "Branch not mapped to RM";
                   uploadResult.failed++;
+                } else {
+                  // Filter RM list by active status and matching segment
+                  const eligibleSegmentRMs = rmList.filter(rm => {
+                    // Check if RM is active
+                    const isActive = rm.active;
+                    
+                    // Get the RM's segment from hierarchy master
+                    const rmHierarchy = hierarchyMasterMap.get(rm.rmId);
+                    const rmSegment = rmHierarchy?.Segment || "";
+                    
+                    // RM is eligible if active and segment matches anchor segment
+                    return isActive && rmSegment === anchorSegment;
+                  });
+                  
+                  console.log(`Row ${originalRowNumber}: Found ${eligibleSegmentRMs.length} eligible RMs with matching segment ${anchorSegment}`);
+                  
+                  if (eligibleSegmentRMs.length === 0) {
+                    console.log(`Row ${originalRowNumber}: No active RMs with matching segment for branch ${branchCode}`);
+                    processedLeadEntry.errorCode = "ERR_RM_NSEG_ACT";
+                    processedLeadEntry.assignmentStatus = "Failed: No Active RM for Segment in Branch";
+                    uiRow.error = "No Active RM for Segment in Branch";
+                    uploadResult.failed++;
+                  } else if (eligibleSegmentRMs.length === 1) {
+                    // Single RM case - direct assignment
+                    const selectedRM = eligibleSegmentRMs[0];
+                    const rmAdid = selectedRM.rmId;
+                    console.log(`Row ${originalRowNumber}: Single eligible RM found, assigned to RM ${rmAdid} (${selectedRM.rmName})`);
+                    
+                    processedLeadEntry.assignedRmAdid = rmAdid;
+                    processedLeadEntry.assignmentStatus = "RM Assigned (Auto - Segment)";
+                    processedLeadEntry.errorCode = "INFO_RM_SEG_DIRECT";
+                    processedLeadEntry.errorDescription = "RM assigned automatically based on segment (direct)";
+                    
+                    uiRow.assignedRmAdid = rmAdid;
+                    uiRow.status = "success";
+                    uploadResult.success++;
+                  } else {
+                    // Multiple RMs case - round-robin assignment
+                    // Sort RMs consistently by rmId to ensure deterministic ordering
+                    const sortedRMs = [...eligibleSegmentRMs].sort((a, b) => a.rmId.localeCompare(b.rmId));
+                    
+                    // Create a round-robin key combining branch code and segment
+                    const rrKey = `${branchCode}_${anchorSegment}`;
+                    
+                    // Get the last assigned index for this key, default to -1 if not found
+                    const lastAssignedIndex = roundRobinCounters.get(rrKey) ?? -1;
+                    
+                    // Calculate the next index using modulo to wrap around
+                    const nextIndex = (lastAssignedIndex + 1) % sortedRMs.length;
+                    
+                    // Get the selected RM and update the counter
+                    const selectedRM = sortedRMs[nextIndex];
+                    roundRobinCounters.set(rrKey, nextIndex);
+                    
+                    console.log(`Row ${originalRowNumber}: Multiple eligible RMs, using round-robin (${nextIndex + 1}/${sortedRMs.length})`);
+                    console.log(`Row ${originalRowNumber}: Assigned to RM ${selectedRM.rmId} (${selectedRM.rmName})`);
+                    
+                    processedLeadEntry.assignedRmAdid = selectedRM.rmId;
+                    processedLeadEntry.assignmentStatus = "RM Assigned (Auto - Segment RR)";
+                    processedLeadEntry.errorCode = "INFO_RM_SEG_RR";
+                    processedLeadEntry.errorDescription = "RM assigned automatically based on segment (round-robin)";
+                    
+                    uiRow.assignedRmAdid = selectedRM.rmId;
+                    uiRow.status = "success";
+                    uploadResult.success++;
+                  }
                 }
               }
             }
@@ -363,9 +462,10 @@ export default function NewLeads() {
           uiRow.error = processedLeadEntry.errorDescription || "Unknown error";
         }
         
-        // If the lead was successfully assigned (either by RM ADID or by pincode lookup),
+        // If the lead was successfully assigned (either by RM ADID or by segment-based logic),
         // set its smartfinUploadStatus to 'pending' instead of calling handleNewLeadAssignment immediately
-        if (processedLeadEntry.assignmentStatus === "RM Assigned (Auto)" || 
+        if (processedLeadEntry.assignmentStatus === "RM Assigned (Auto - Segment)" || 
+            processedLeadEntry.assignmentStatus === "RM Assigned (Auto - Segment RR)" ||
             processedLeadEntry.assignmentStatus === "RM Assigned (Manual)") {
           processedLeadEntry.smartfinUploadStatus = 'pending';
         }
@@ -380,8 +480,9 @@ export default function NewLeads() {
           anchorId: String(originalRow["PAN Number"] || ""),
           rmName: String(originalRow["RM ADID"] || ""),
           assignedRmAdid: processedLeadEntry.assignedRmAdid || undefined,
-          status: processedLeadEntry.errorCode ? "failed" : "success",
-          error: processedLeadEntry.errorDescription || undefined
+          status: (processedLeadEntry.errorCode && processedLeadEntry.errorCode.startsWith("INFO_")) ? "success" : "failed",
+          error: processedLeadEntry.errorDescription || undefined,
+          smartfinLeadId: processedLeadEntry.smartfinLeadId
         });
       }
       
@@ -447,7 +548,9 @@ export default function NewLeads() {
         .equals(uploadBatchId)
         .and(lead => 
           (lead.assignmentStatus === "RM Assigned (Manual)" || 
-           lead.assignmentStatus === "RM Assigned (Auto)") && 
+           lead.assignmentStatus === "RM Assigned (Auto)" ||
+           lead.assignmentStatus === "RM Assigned (Auto - Segment)" ||
+           lead.assignmentStatus === "RM Assigned (Auto - Segment RR)") && 
           (lead.smartfinUploadStatus === 'pending' || lead.smartfinUploadStatus === null)
         )
         .toArray();
@@ -979,6 +1082,7 @@ export default function NewLeads() {
                             <TableHead>Dealer ID</TableHead>
                             <TableHead>Anchor ID</TableHead>
                             <TableHead>RM Name</TableHead>
+                            <TableHead>Smartfin Lead ID</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Error</TableHead>
                             {/* Add Smartfin columns if Smartfin upload has been attempted */}
@@ -998,6 +1102,7 @@ export default function NewLeads() {
                               <TableCell>{row.dealerId}</TableCell>
                               <TableCell>{row.anchorId}</TableCell>
                               <TableCell>{row.rmName}</TableCell>
+                              <TableCell>{row.smartfinLeadId || "-"}</TableCell>
                               <TableCell>
                                 <span
                                   className={cn(

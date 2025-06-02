@@ -34,7 +34,34 @@ export const ERROR_CODES = {
   ERR_RM_NBR: { code: "ERR_RM_NBR", description: "No RM for Branch.", module: "RM Assignment", severity: "Error" },
   INFO_RM_MANUAL: { code: "INFO_RM_MANUAL", description: "RM assigned from Excel.", module: "RM Assignment", severity: "Info" },
   INFO_RM_AUTO: { code: "INFO_RM_AUTO", description: "RM assigned automatically.", module: "RM Assignment", severity: "Info" },
-  ERR_ANCHOR_PROG_REQ: { code: "ERR_ANCHOR_PROG_REQ", description: "Anchor and Program must be selected.", module: "Lead Upload", severity: "Error" }
+  ERR_ANCHOR_PROG_REQ: { code: "ERR_ANCHOR_PROG_REQ", description: "Anchor and Program must be selected.", module: "Lead Upload", severity: "Error" },
+  // New error codes for segment-based RM assignment
+  ERR_ANCHOR_SEG_NF: { code: "ERR_ANCHOR_SEG_NF", description: "Anchor Segment Not Found.", module: "RM Assignment", severity: "Error" },
+  ERR_RM_NSEG_ACT: { code: "ERR_RM_NSEG_ACT", description: "No Active RM for Segment in Branch.", module: "RM Assignment", severity: "Error" },
+  INFO_RM_SEG_DIRECT: { code: "INFO_RM_SEG_DIRECT", description: "RM assigned automatically based on segment (direct).", module: "RM Assignment", severity: "Info" },
+  INFO_RM_SEG_RR: { code: "INFO_RM_SEG_RR", description: "RM assigned automatically based on segment (round-robin).", module: "RM Assignment", severity: "Info" }
+};
+
+// Lead Workflow Stages
+export const WORKFLOW_STAGES = {
+  // RM stages
+  RM_ASSIGNMENT_EMAIL_PENDING: 'RM_AssignmentEmailPending',
+  RM_AWAITING_REPLY: 'RM_AwaitingReply',
+  RM_REASSIGNMENT_EMAIL_PENDING: 'RM_ReassignmentEmailPending',
+  
+  // Escalation stages
+  RM_ESCALATION_1: 'RM_Escalation1',
+  RM_ESCALATION_2: 'RM_Escalation2',
+  
+  // PSM stages
+  PSM_REVIEW_PENDING: 'PSM_ReviewPending',
+  PSM_ASSIGNED: 'PSM_Assigned',
+  PSM_AWAITING_ACTION: 'PSM_AwaitingAction',
+  
+  // Other stages
+  ADMIN_REVIEW_PENDING: 'AdminReviewPending',
+  DROPPED: 'Dropped',
+  CLOSED: 'ClosedLead'
 };
 
 // Template headers for Smartfin Status Update

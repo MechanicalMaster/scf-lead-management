@@ -13,25 +13,12 @@ import { cn } from "@/lib/utils"
 import { 
   LeadCommunication, 
   LeadWorkflowState, 
-  stageToFlagMap,
   getLeadWorkflowStateByProcessedLeadId,
   getLeadCommunicationsByProcessedLeadId
 } from "@/lib/lead-workflow"
 import { format } from "date-fns"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { safeDbOperation } from "@/lib/db-init"
-
-interface Lead {
-  id: string
-  dealerName: string
-  anchorName: string
-  rmName: string
-  lastUpdated: string
-  priority: "High" | "Medium" | "Low"
-  ageingBucket: string
-  lastActionDate: string
-  flag: "With RM" | "Escalation 1" | "Escalation 2" | "With PSM" | "Under Progress" | "Dropped"
-}
 
 interface LeadHistory {
   id: string
@@ -48,34 +35,6 @@ interface LeadHistory {
 
 interface LeadDetailsProps {
   leadId: string
-}
-
-const priorityColors = {
-  High: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  Medium: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-  Low: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-}
-
-const flagColors = {
-  "With RM": "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
-  "Escalation 1": "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
-  "Escalation 2": "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
-  "With PSM": "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
-  "Under Progress": "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
-  "Dropped": "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300",
-}
-
-// Mock data - would come from API in real app
-const LEAD_DATA: Lead = {
-  id: "LD-001",
-  dealerName: "ABC Motors",
-  anchorName: "XYZ Corp",
-  rmName: "John Smith",
-  lastUpdated: "2025-03-28",
-  priority: "High",
-  ageingBucket: "0-7 days",
-  lastActionDate: "2025-03-27",
-  flag: "With RM",
 }
 
 // Mock history data - would come from API in real app
@@ -240,14 +199,6 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
 
   const isItemExpanded = (itemId: string) => expandedItems.includes(itemId)
 
-  // Helper to map workflow stage to display flag
-  const getDisplayFlag = (): string => {
-    if (!workflowState) return "With RM"; // Default
-    
-    // Map from currentStage to display flag
-    return stageToFlagMap[workflowState.currentStage] || "With RM";
-  }
-
   // Helper to get formatted dates
   const formatDateFromISOString = (isoString: string): string => {
     try {
@@ -298,73 +249,13 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
             </Button>
           </Link>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            Lead Details: {LEAD_DATA.id}
+            Lead Details: {leadId}
           </h1>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 dark:bg-[#1F1F23] border-b border-gray-200 dark:border-[#1F1F23]">
-              <h2 className="text-lg font-medium text-gray-900 dark:text-white">Lead Information</h2>
-            </div>
-            <div className="p-4 space-y-4">
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Lead ID</p>
-                <p className="text-base font-medium text-gray-900 dark:text-white">{LEAD_DATA.id}</p>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Dealer Name</p>
-                <p className="text-base text-gray-900 dark:text-white">{LEAD_DATA.dealerName}</p>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Anchor Name</p>
-                <p className="text-base text-gray-900 dark:text-white">{LEAD_DATA.anchorName}</p>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">RM Name</p>
-                <p className="text-base text-gray-900 dark:text-white">{LEAD_DATA.rmName}</p>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Priority</p>
-                <div>
-                  <span
-                    className={cn(
-                      "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
-                      priorityColors[LEAD_DATA.priority]
-                    )}
-                  >
-                    {LEAD_DATA.priority}
-                  </span>
-                </div>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Flag</p>
-                <div>
-                  <span
-                    className={cn(
-                      "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
-                      flagColors[getDisplayFlag() as keyof typeof flagColors]
-                    )}
-                  >
-                    {getDisplayFlag()}
-                  </span>
-                </div>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Ageing Bucket</p>
-                <p className="text-base text-gray-900 dark:text-white">{LEAD_DATA.ageingBucket}</p>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Last Updated</p>
-                <p className="text-base text-gray-900 dark:text-white">
-                  {workflowState?.updatedAt ? formatDateFromISOString(workflowState.updatedAt) : LEAD_DATA.lastUpdated}
-                </p>
-              </div>
-            </div>
-          </div>
-          
           <div className="bg-white dark:bg-[#0F0F12] rounded-xl border border-gray-200 dark:border-[#1F1F23] overflow-hidden">
             <div className="px-4 py-3 bg-gray-50 dark:bg-[#1F1F23] border-b border-gray-200 dark:border-[#1F1F23]">
               <h2 className="text-lg font-medium text-gray-900 dark:text-white">AI Escalation Status</h2>
@@ -385,19 +276,19 @@ export default function LeadDetails({ leadId }: LeadDetailsProps) {
                   <div className="bg-gray-100 dark:bg-[#1F1F23] rounded-md p-3 space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-xs text-blue-600 dark:text-blue-400 font-medium">1</div>
-                      <p className="text-sm text-gray-700 dark:text-gray-300">Lead Upload - 2025-03-20</p>
+                      <p className="text-sm text-gray-700 dark:text-gray-300">Lead Upload - {workflowState?.createdAt ? formatDateFromISOString(workflowState.createdAt) : 'N/A'}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-xs text-blue-600 dark:text-blue-400 font-medium">2</div>
-                      <p className="text-sm text-gray-700 dark:text-gray-300">7-Day Reminder - 2025-03-27</p>
+                      <p className="text-sm text-gray-700 dark:text-gray-300">7-Day Reminder</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-500 dark:text-gray-400 font-medium">3</div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Escalation 1 (Day 15) - 2025-04-04</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Escalation 1 (Day 15)</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-500 dark:text-gray-400 font-medium">4</div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400">Escalation 2 (Day 20) - 2025-04-09</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Escalation 2 (Day 20)</p>
                     </div>
                   </div>
                 </div>

@@ -56,6 +56,10 @@ export const stageToFlagMap: Record<string, string> = {
   'RM_AwaitingReply': 'With RM',
   'RM_ReassignmentEmailPending': 'With RM',
   
+  // Escalation stages
+  'RM_Escalation1': 'Escalation 1',
+  'RM_Escalation2': 'Escalation 2',
+  
   // PSM stages - for leads requiring PSM review or action
   'PSM_ReviewPending': 'With PSM',   // Lead has been escalated to PSM for review
   'PSM_Assigned': 'With PSM',        // Lead has been explicitly assigned to a PSM
