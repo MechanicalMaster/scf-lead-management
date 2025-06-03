@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { Menu, UserPlus, Users, FileBarChart, Database, ChevronDown, ChevronRight, LogOut, Settings, Sparkles, BarChart } from "lucide-react"
+import { Menu, UserPlus, Users, FileBarChart, Database, ChevronDown, ChevronRight, LogOut, BarChart } from "lucide-react"
 
 import { Home } from "lucide-react"
 import Link from "next/link"
@@ -130,23 +130,6 @@ export default function Sidebar() {
                   </NavItem>
                 </div>
               </div>
-
-              {/* Configuration section */}
-              {userRole === "admin" && (
-                <div>
-                  <div className="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                    Configuration
-                  </div>
-                  <div className="space-y-1">
-                    <NavItem href="/configuration/escalation-rules" icon={Settings}>
-                      Escalation Rules
-                    </NavItem>
-                    <NavItem href="/configuration/ai-rules" icon={Sparkles}>
-                      AI Rules
-                    </NavItem>
-                  </div>
-                </div>
-              )}
 
               {/* Only show Masters section to admin users */}
               {userRole === "admin" && (

@@ -84,59 +84,6 @@ const leadAgingData = [
   { name: "60+ days", new: 2, contacted: 2, qualified: 5, proposal: 3 },
 ]
 
-const recentLeads = [
-  {
-    id: "LD-001",
-    dealerId: "DLR-5678",
-    anchorId: "ANC-1234",
-    rmName: "John Smith",
-    psmName: "Alex Williams",
-    status: "New",
-    lastUpdated: "Mar 28, 2025",
-    daysOld: 2,
-  },
-  {
-    id: "LD-002",
-    dealerId: "DLR-9012",
-    anchorId: "ANC-5678",
-    rmName: "Sarah Johnson",
-    psmName: "Mike Thompson",
-    status: "Contacted",
-    lastUpdated: "Mar 27, 2025",
-    daysOld: 3,
-  },
-  {
-    id: "LD-003",
-    dealerId: "DLR-3456",
-    anchorId: "ANC-9012",
-    rmName: "Michael Brown",
-    psmName: "Lisa Anderson",
-    status: "Qualified",
-    lastUpdated: "Mar 26, 2025",
-    daysOld: 4,
-  },
-  {
-    id: "LD-004",
-    dealerId: "DLR-7890",
-    anchorId: "ANC-3456",
-    rmName: "Emily Davis",
-    psmName: "James Wilson",
-    status: "Proposal",
-    lastUpdated: "Mar 25, 2025",
-    daysOld: 5,
-  },
-  {
-    id: "LD-005",
-    dealerId: "DLR-1234",
-    anchorId: "ANC-7890",
-    rmName: "David Wilson",
-    psmName: "Sarah Thompson",
-    status: "Negotiation",
-    lastUpdated: "Mar 24, 2025",
-    daysOld: 6,
-  },
-]
-
 const statusColors: Record<string, string> = {
   New: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
   Contacted: "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300",
@@ -321,60 +268,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Recent Leads */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Leads</CardTitle>
-          <CardDescription>
-            Latest leads added to the system
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 dark:border-[#1F1F23]">
-                  <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Lead ID</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Dealer ID</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Anchor ID</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">RM Name</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">PSM Name</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Status</th>
-                  <th className="px-4 py-3 text-left font-medium text-gray-500 dark:text-gray-400">Aging</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-[#1F1F23]">
-                {recentLeads.map((lead) => (
-                  <tr key={lead.id} className="hover:bg-gray-50 dark:hover:bg-[#1F1F23] transition-colors">
-                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{lead.id}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.dealerId}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.anchorId}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.rmName}</td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{lead.psmName}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={cn(
-                          "inline-flex items-center px-2 py-1 rounded-full text-xs font-medium",
-                          statusColors[lead.status]
-                        )}
-                      >
-                        {lead.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
-                      {lead.daysOld} days
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-        <CardFooter className="flex justify-end">
-          <Button variant="outline" size="sm">View All Leads</Button>
-        </CardFooter>
-      </Card>
 
       {/* Conversion Funnel */}
       <Card>
