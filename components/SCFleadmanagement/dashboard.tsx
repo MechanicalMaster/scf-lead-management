@@ -120,7 +120,7 @@ export default function Dashboard() {
       </div>
 
       {/* Lead Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" data-tour="summary-cards">
         {leadSummaryData.map((item, index) => (
           <Card key={index}>
             <CardContent className="p-6">
@@ -156,7 +156,7 @@ export default function Dashboard() {
       {/* Lead Status and Aging Analysis */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Status Distribution */}
-        <Card className="col-span-1">
+        <Card className="col-span-1" data-tour="status-chart">
           <CardHeader>
             <CardTitle>Lead Status Distribution</CardTitle>
             <CardDescription>
@@ -224,7 +224,7 @@ export default function Dashboard() {
         </Card>
 
         {/* Lead Aging */}
-        <Card className="col-span-1">
+        <Card className="col-span-1" data-tour="aging-chart">
           <CardHeader>
             <CardTitle>Lead Aging</CardTitle>
             <CardDescription>
@@ -270,7 +270,7 @@ export default function Dashboard() {
       </div>
 
       {/* Conversion Funnel */}
-      <Card>
+      <Card data-tour="conversion-funnel">
         <CardHeader>
           <CardTitle>Lead Conversion Funnel</CardTitle>
           <CardDescription>

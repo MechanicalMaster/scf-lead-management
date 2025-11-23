@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { Menu, UserPlus, Users, FileBarChart, Database, ChevronDown, ChevronRight, LogOut, BarChart } from "lucide-react"
+import { Menu, UserPlus, Users, FileBarChart, Database, ChevronDown, ChevronRight, LogOut, BarChart, HelpCircle } from "lucide-react"
 
 import { Home } from "lucide-react"
 import Link from "next/link"
@@ -10,12 +10,20 @@ import { useState } from "react"
 import Image from "next/image"
 import { useAuth } from "@/components/auth-provider"
 import { usePathname } from "next/navigation"
+import { createDashboardTour } from "@/lib/tours/dashboard-tour"
+import { resetTour } from "@/lib/tours/shepherd-config"
 
 export default function Sidebar() {
   const { userEmail, userRole, logout, hasAccess } = useAuth()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isMastersExpanded, setIsMastersExpanded] = useState(false)
   const pathname = usePathname()
+
+  const handleStartTour = () => {
+    resetTour('dashboard')
+    const tour = createDashboardTour()
+    tour.start()
+  }
 
   function handleNavigation() {
     setIsMobileMenuOpen(false)
@@ -55,12 +63,14 @@ export default function Sidebar() {
     <>
       <button
         type="button"
+        data-tour="hamburger-menu"
         className="fixed top-4 left-4 z-[70] p-2 rounded-lg bg-white dark:bg-[#0F0F12] shadow-md"
         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
       >
         <Menu className="h-5 w-5 text-gray-600 dark:text-gray-300" />
       </button>
       <nav
+        data-tour="sidebar"
         className={`
                 fixed inset-y-0 left-0 z-[70] w-64 bg-white dark:bg-[#0F0F12] transform transition-transform duration-200 ease-in-out
                 border-r border-gray-200 dark:border-[#1F1F23]
@@ -224,7 +234,14 @@ export default function Sidebar() {
               </div>
             )}
             <div className="space-y-1">
-              <button 
+              <button
+                onClick={handleStartTour}
+                className="flex w-full items-center px-3 py-2 text-sm rounded-md transition-colors text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-[#1F1F23]"
+              >
+                <HelpCircle className="h-4 w-4 mr-3 flex-shrink-0" />
+                Start Tour
+              </button>
+              <button
                 onClick={logout}
                 className="flex w-full items-center px-3 py-2 text-sm rounded-md transition-colors text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-[#1F1F23]"
               >

@@ -62,7 +62,7 @@ export default function LoginForm() {
     <div className="w-full space-y-5">
       <div className="mb-4 text-center">
         <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Sign in to SCF Lead Management</h2>
-        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400" data-tour="credentials">
           Test credentials:
           <br />
           Admin: admin@yesbank.in / password
@@ -83,7 +83,7 @@ export default function LoginForm() {
           </div>
         )}
         
-        <div className="space-y-2">
+        <div className="space-y-2" data-tour="email-input">
           <Label htmlFor="email">Email</Label>
           <Input
             id="email"
@@ -96,7 +96,7 @@ export default function LoginForm() {
           />
         </div>
         
-        <div className="space-y-2">
+        <div className="space-y-2" data-tour="password-input">
           <div className="flex justify-between items-center">
             <Label htmlFor="password">Password</Label>
             <a href="#" className="text-xs text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300">
@@ -123,7 +123,7 @@ export default function LoginForm() {
           </div>
         </div>
         
-        <Button type="submit" className="w-full h-11 mt-6" disabled={isLoading}>
+        <Button type="submit" className="w-full h-11 mt-6" disabled={isLoading} data-tour="submit-button">
           {isLoading ? "Signing in..." : "Sign In"}
         </Button>
       </form>

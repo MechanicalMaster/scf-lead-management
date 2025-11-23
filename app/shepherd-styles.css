@@ -1,0 +1,101 @@
+/* Import Shepherd.js default styles */
+@import 'shepherd.js/dist/css/shepherd.css';
+
+/* Custom theme styles */
+.shepherd-theme-custom {
+  border-radius: 0.5rem;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+
+.shepherd-theme-custom .shepherd-header {
+  padding: 1rem 1rem 0.5rem;
+}
+
+.shepherd-theme-custom .shepherd-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.shepherd-theme-custom .shepherd-text {
+  padding: 0.5rem 1rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+}
+
+.shepherd-theme-custom .shepherd-footer {
+  padding: 0 1rem 1rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.shepherd-theme-custom .shepherd-button {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: 0.375rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.shepherd-theme-custom .shepherd-button:not(.shepherd-button-secondary) {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.shepherd-theme-custom .shepherd-button:not(.shepherd-button-secondary):hover {
+  background-color: hsl(var(--primary) / 0.9);
+}
+
+.shepherd-theme-custom .shepherd-button-secondary {
+  background-color: transparent;
+  color: hsl(var(--muted-foreground));
+  border: 1px solid hsl(var(--border));
+}
+
+.shepherd-theme-custom .shepherd-button-secondary:hover {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.shepherd-theme-custom .shepherd-cancel-icon {
+  color: hsl(var(--muted-foreground));
+  transition: color 0.2s;
+}
+
+.shepherd-theme-custom .shepherd-cancel-icon:hover {
+  color: hsl(var(--foreground));
+}
+
+/* Modal overlay customization */
+.shepherd-modal-overlay-container {
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.shepherd-element {
+  z-index: 9999;
+  background-color: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+}
+
+/* Arrow customization */
+.shepherd-arrow::before {
+  background-color: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+}
+
+/* Dark mode adjustments */
+.dark .shepherd-element {
+  background-color: hsl(var(--background));
+}
+
+.dark .shepherd-theme-custom .shepherd-title {
+  color: hsl(var(--foreground));
+}
+
+.dark .shepherd-theme-custom .shepherd-text {
+  color: hsl(var(--muted-foreground));
+}
